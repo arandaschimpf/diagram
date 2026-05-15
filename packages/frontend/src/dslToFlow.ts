@@ -1,5 +1,6 @@
 import { parse, inferEdges } from '@diagram/parser';
 import type { AST, DiagramNode } from '@diagram/parser';
+import { MarkerType } from '@xyflow/react';
 import type { Node, Edge } from '@xyflow/react';
 
 export type LayoutEntry = { x: number; y: number; width?: number; height?: number };
@@ -31,7 +32,7 @@ function processNodes(
       id: serviceId,
       type: 'service',
       position: { x: entry.x, y: entry.y },
-      data: { name: node.name, external: node.external },
+      data: { name: node.name, external: node.external, comment: node.comment },
       ...(parentServiceId ? { parentId: parentServiceId, extent: 'parent' as const } : {}),
       style: {
         width: entry.width ?? 900,
@@ -75,13 +76,23 @@ export function dslToFlow(src: string, layout: Layout): { nodes: Node[]; edges: 
     const fromNode = xyNodes.find(n => n.id === e.from && n.type !== 'service');
     const toNode = xyNodes.find(n => n.id === e.to && n.type !== 'service');
     if (!fromNode || !toNode) continue;
+    const color = e.dashed ? '#7a9ab8' : '#5b9bd5';
     edges.push({
       id: `e-${fromNode.id}-${toNode.id}-${e.label ?? ''}`,
       source: fromNode.id,
       target: toNode.id,
-
-      style: e.dashed ? { strokeDasharray: '5,5' } : undefined,
-      type: 'smoothstep',
+      type: 'bezier',
+      style: {
+        stroke: color,
+        strokeWidth: 1.5,
+        ...(e.dashed ? { strokeDasharray: '6,4' } : {}),
+      },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color,
+        width: 14,
+        height: 14,
+      },
     });
   }
 

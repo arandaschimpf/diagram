@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react';
 import { registerDiagramLanguage, LANG_ID } from './monacoLanguage';
 import { FileSidebar } from './components/FileSidebar';
@@ -69,12 +69,33 @@ export default function App() {
     }
   }, []);
 
+  const formatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFormattingRef = useRef(false);
+
   const { code, layout, loading, updateCode, updateLayout } = useFileSync(currentFile);
+
+  const handleChange = useCallback((v: string | undefined) => {
+    updateCode(v ?? '');
+    if (isFormattingRef.current) return;
+    if (formatTimerRef.current) clearTimeout(formatTimerRef.current);
+    formatTimerRef.current = setTimeout(() => {
+      isFormattingRef.current = true;
+      editorRef.current?.getAction('editor.action.formatDocument')?.run().then(() => {
+        isFormattingRef.current = false;
+      });
+    }, 5000);
+  }, [updateCode]);
 
   const { nodes, edges } = useMemo(
     () => dslToFlow(code, layout),
     [code, layout],
   );
+
+  // Clear pending format when switching files so stale timer doesn't fire on new content
+  useEffect(() => {
+    if (formatTimerRef.current) clearTimeout(formatTimerRef.current);
+    isFormattingRef.current = false;
+  }, [currentFile]);
 
   const handleLayoutChange = (newLayout: Layout) => updateLayout(newLayout);
 
@@ -117,7 +138,7 @@ export default function App() {
                 defaultLanguage={LANG_ID}
                 theme="diagram-dark"
                 value={code}
-                onChange={v => updateCode(v ?? '')}
+                onChange={handleChange}
                 beforeMount={handleBeforeMount}
                 onMount={handleEditorMount}
                 options={{

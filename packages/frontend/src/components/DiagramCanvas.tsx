@@ -10,7 +10,7 @@ import { toPng } from 'html-to-image';
 
 import {
   EntityNodeComp, EventNodeComp, EventHandlerNodeComp,
-  QueryNodeComp, ActionNodeComp, XORNodeComp, ActorNodeComp, ServiceNodeComp,
+  QueryNodeComp, ActionNodeComp, ActorNodeComp, ServiceNodeComp,
 } from './nodes';
 import type { Layout } from '../dslToFlow';
 import { DiagramCallbackContext } from '../diagramContext';
@@ -21,7 +21,6 @@ const nodeTypes = {
   eventhandler: EventHandlerNodeComp,
   query: QueryNodeComp,
   action: ActionNodeComp,
-  xor: XORNodeComp,
   actor: ActorNodeComp,
   service: ServiceNodeComp,
 };
@@ -142,6 +141,7 @@ export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, on
           onNodeContextMenu={handleNodeContextMenu}
           nodeTypes={nodeTypes}
           fitView
+          panActivationKeyCode={null}
           proOptions={{ hideAttribution: true }}
         >
           <Background color="#333" gap={16} />
@@ -162,7 +162,6 @@ function nodeColor(node: Node): string {
     case 'eventhandler': return '#c87020';
     case 'query': return '#3a9e55';
     case 'action': return '#3a9e55';
-    case 'xor': return '#d05070';
     case 'actor': return '#8040b0';
     default: return '#555';
   }

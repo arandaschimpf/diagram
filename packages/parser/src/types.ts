@@ -10,16 +10,24 @@ export type Field = {
   optional: boolean;
 };
 
+export type Constraint = {
+  kind: 'either' | 'unique';
+  fields: string[];
+};
+
 export type EntityNode = {
   kind: 'Entity';
   name: string;
   fields: Field[];
+  constraints: Constraint[];
+  comment?: string;
 };
 
 export type EventNode = {
   kind: 'Event';
   name: string;
   payload: Field[];
+  comment?: string;
 };
 
 export type EventHandlerNode = {
@@ -28,6 +36,7 @@ export type EventHandlerNode = {
   payload: Field[];
   calls: string[];
   dispatch: string[];
+  comment?: string;
 };
 
 export type QueryNode = {
@@ -35,6 +44,7 @@ export type QueryNode = {
   name: string;
   inputs: Field[];
   response: Field[];
+  comment?: string;
 };
 
 export type ActionNode = {
@@ -42,17 +52,13 @@ export type ActionNode = {
   name: string;
   inputs: Field[];
   calls: string[];
-};
-
-export type XORNode = {
-  kind: 'XOR';
-  name: string;
-  options: string[];
+  comment?: string;
 };
 
 export type ActorNode = {
   kind: 'Actor';
   name: string;
+  comment?: string;
 };
 
 export type ServiceNode = {
@@ -60,6 +66,7 @@ export type ServiceNode = {
   name: string;
   external: boolean;
   children: DiagramNode[];
+  comment?: string;
 };
 
 export type DiagramNode =
@@ -68,7 +75,6 @@ export type DiagramNode =
   | EventHandlerNode
   | QueryNode
   | ActionNode
-  | XORNode
   | ActorNode
   | ServiceNode;
 

@@ -4,16 +4,15 @@ A small language for describing service architectures. Write `.diagram` files �
 
 ## Node types
 
-| Type | Shape | Purpose |
-|------|-------|---------|
-| `Service` | container | Groups related nodes; can nest arbitrarily |
-| `Entity` | blue rectangle | Data model with typed fields |
-| `Event` | yellow rectangle | Domain event with optional payload |
+| Type           | Shape            | Purpose                                             |
+| -------------- | ---------------- | --------------------------------------------------- |
+| `Service`      | container        | Groups related nodes; can nest arbitrarily          |
+| `Entity`       | blue rectangle   | Data model with typed fields and constraints        |
+| `Event`        | yellow rectangle | Domain event with optional payload                  |
 | `EventHandler` | orange rectangle | Reacts to events, calls services, dispatches events |
-| `Query` | green rectangle | Read operation with inputs and response |
-| `Action` | green diamond | Write/command operation with inputs |
-| `XOR` | pink rounded rect | Exclusive branch — a choice between alternatives |
-| `Actor` | purple node | External initiator (user, cron, webhook) |
+| `Query`        | green rectangle  | Read operation with inputs and response             |
+| `Action`       | green diamond    | Write/command operation with inputs                 |
+| `Actor`        | purple node      | External initiator (user, cron, webhook)            |
 
 ---
 
@@ -58,6 +57,39 @@ Entity Order {
 **Primitive types:** `string`, `number`, `boolean`, `Date`
 
 Cross-service references use `::` paths: `Platform::Auth::User`
+
+### Constraints
+
+Entity-level constraints are declared with `@` tags after the fields.
+
+**`@either`** — exactly one of the listed fields must be set (mutual exclusion):
+
+```
+@either: [order_id, payout_id]
+```
+
+**`@unique`** — composite unique constraint across the listed fields. Repeat for multiple constraints:
+
+```
+@unique: [funding_id, order_id]
+@unique: [funding_id, payout_id]
+```
+
+Full example:
+
+```
+Entity FundingAllocation {
+  allocation_id: string
+  funding_id:    Funding
+  order_id:      string | null
+  payout_id:     Payout | null
+  amount:        number
+
+  @either:  [order_id, payout_id]
+  @unique:  [funding_id, order_id]
+  @unique:  [funding_id, payout_id]
+}
+```
 
 ---
 
@@ -134,26 +166,58 @@ Action CreateOrder {
 
 ---
 
-## XOR
+## Actor
 
-An exclusive branch — represents a point where the flow takes one of several paths.
+An external agent that initiates flows. Supports an optional body for a comment.
 
 ```
-XOR OrderOutcome {
-  options: [OrderPlaced, PaymentFailed]
+Actor User
+Actor StripeWebhook
+
+Actor AdminDashboard {
+  // Internal tool used by the ops team
 }
 ```
 
 ---
 
-## Actor
+## Comments
 
-An external agent that initiates flows. No fields.
+Any node with a `{}` body supports a description comment. Write one or more consecutive `//` lines at the very top of the body — they are captured and rendered on the canvas card.
 
 ```
-Actor User
-Actor StripeWebhook
+Service Auth {
+  // Handles authentication and session management
+
+  Entity Session {
+    // Created on login, expires after 30 min
+    id:      string
+    userId:  string
+  }
+
+  Action Login {
+    // Validates credentials and issues a session token
+    inputs: {
+      email:    string
+      password: string
+    }
+  }
+
+  Event SessionExpired {
+    // Fired by the cleanup job
+  }
+}
 ```
+
+`Actor` supports an optional `{}` body solely for a comment:
+
+```
+Actor StripeWebhook {
+  // External webhook from Stripe payment events
+}
+```
+
+Mid-body `//` lines (after fields) are silently ignored; only leading ones are captured.
 
 ---
 
@@ -189,6 +253,18 @@ Service Orders {
     created_at: Date
   }
 
+  Entity FundingAllocation {
+    allocation_id: string
+    funding_id:    Order
+    order_id:      string | null
+    payout_id:     string | null
+    amount:        number
+
+    @either: [order_id, payout_id]
+    @unique: [funding_id, order_id]
+    @unique: [funding_id, payout_id]
+  }
+
   Event OrderPlaced
   Event PaymentFailed
 
@@ -213,10 +289,6 @@ Service Orders {
 
   Action CancelOrder {
     inputs: { orderId: string }
-  }
-
-  XOR OrderOutcome {
-    options: [OrderPlaced, PaymentFailed]
   }
 }
 ```

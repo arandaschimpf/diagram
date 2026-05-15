@@ -1,4 +1,5 @@
 import type { Monaco } from '@monaco-editor/react';
+import { parse, serialize } from '@diagram/parser';
 
 export const LANG_ID = 'diagram-dsl';
 
@@ -8,15 +9,18 @@ export function registerDiagramLanguage(monaco: Monaco) {
   monaco.languages.register({ id: LANG_ID });
 
   monaco.languages.setMonarchTokensProvider(LANG_ID, {
-    keywords: ['Service', 'Entity', 'Event', 'EventHandler', 'Query', 'Action', 'XOR', 'Actor', 'external'],
+    keywords: ['Service', 'Entity', 'Event', 'EventHandler', 'Query', 'Action', 'Actor', 'external'],
     typeKeywords: ['string', 'number', 'boolean', 'Date', 'null'],
     tokenizer: {
       root: [
         // Line comments
         [/\/\/.*$/, 'comment'],
 
+        // Constraint annotations (@either, @unique)
+        [/@(either|unique)\b/, 'keyword.constraint'],
+
         // Keywords
-        [/\b(Service|Entity|Event|EventHandler|Query|Action|XOR|Actor|external)\b/, 'keyword'],
+        [/\b(Service|Entity|Event|EventHandler|Query|Action|Actor|external)\b/, 'keyword'],
 
         // Primitive / built-in types
         [/\b(string|number|boolean|Date|null)\b/, 'type'],
@@ -26,7 +30,7 @@ export function registerDiagramLanguage(monaco: Monaco) {
         [/\b[a-z_][A-Za-z0-9_]*\b/, 'identifier'],
 
         // Operators and punctuation
-        [/[|?:,\[\]{}()]/, 'delimiter'],
+        [/[|?:,\[\]{}()@]/, 'delimiter'],
       ],
     },
   });
@@ -73,17 +77,31 @@ export function registerDiagramLanguage(monaco: Monaco) {
       }
 
       // Default: go to definition of the type reference under cursor
-      const results = findAll(model, new RegExp(`\\b(Entity|EventHandler|Event|Query|Action|XOR|Actor|Service)\\s+${name}\\b`), true);
+      const results = findAll(model, new RegExp(`\\b(Entity|EventHandler|Event|Query|Action|Actor|Service)\\s+${name}\\b`), true);
       return results.length > 0 ? results[0] : null;
     },
   };
   monaco.languages.registerDefinitionProvider(LANG_ID, defProvider);
 
+  monaco.languages.registerDocumentFormattingEditProvider(LANG_ID, {
+    provideDocumentFormattingEdits(model: import('monaco-editor').editor.ITextModel) {
+      const text = model.getValue();
+      try {
+        const formatted = serialize(parse(text));
+        if (formatted === text) return [];
+        return [{ range: model.getFullModelRange(), text: formatted }];
+      } catch {
+        return [];
+      }
+    },
+  });
+
   monaco.editor.defineTheme('diagram-dark', {
     base: 'vs-dark',
     inherit: true,
     rules: [
-      { token: 'keyword',         foreground: 'C586C0', fontStyle: 'bold' },
+      { token: 'keyword',            foreground: 'C586C0', fontStyle: 'bold' },
+      { token: 'keyword.constraint', foreground: 'C586C0', fontStyle: 'italic' },
       { token: 'type',            foreground: '4EC9B0' },
       { token: 'type.identifier', foreground: '4EC9B0' },
       { token: 'identifier',      foreground: '9CDCFE' },
