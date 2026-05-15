@@ -1,0 +1,19 @@
+{
+  "name": "martin-diagram",
+  "private": true,
+  "bin": {
+    "martin-diagram": "./bin/martin-diagram.mjs"
+  },
+  "scripts": {
+    "dev": "concurrently \"DIAGRAM_DIR=. pnpm --filter backend dev\" \"pnpm --filter frontend dev\"",
+    "build": "pnpm --filter parser build && pnpm --filter backend build && pnpm --filter frontend build",
+    "start": "node ./bin/martin-diagram.mjs",
+    "start:backend": "pnpm --filter backend start",
+    "install:global": "pnpm build && pnpm link --global"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.3"
+  },
+  "packageManager": "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299921a89f976381ee107d41f12cfa4b66681ca9c718f0668fa0831ed4c6d8ba56c"
+}
