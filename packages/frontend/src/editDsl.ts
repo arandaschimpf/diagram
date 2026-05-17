@@ -5,7 +5,7 @@ export type TargetKind = 'Action' | 'Query' | 'Event';
 
 // ── Position-aware text scanner ──────────────────────────────────────────────
 
-const NODE_KEYWORDS = new Set(['Service', 'Entity', 'Event', 'EventHandler', 'Query', 'Action', 'Actor']);
+const NODE_KEYWORDS = new Set(['Service', 'Entity', 'Enum', 'Event', 'EventHandler', 'Query', 'Action', 'Actor']);
 
 type ScannedNode = {
   kind: string;
@@ -287,8 +287,8 @@ export function addEdgeToCode(
 
   if (targetKind === 'Event') {
     if (source.kind === 'Actor' || source.kind === 'Query') return code; // actors and queries don't dispatch
-    if (source.dispatch.includes(ref)) return code;
-    source.dispatch.push(ref);
+    if (source.dispatch.some(d => d.target === ref)) return code;
+    source.dispatch.push({ target: ref });
   } else {
     if (source.calls.some(c => c.target === ref)) return code;
     source.calls.push({ kind: targetKind, target: ref });
@@ -319,7 +319,7 @@ export function removeEdgeFromCode(
   if (targetKind === 'Event') {
     if (source.kind === 'Actor' || source.kind === 'Query') return code;
     const idx = source.dispatch.findIndex(
-      ref => resolveRef(ref, found.parentPath, globalIndex, siblings) === targetId,
+      d => resolveRef(d.target, found.parentPath, globalIndex, siblings) === targetId,
     );
     if (idx === -1) return code;
     source.dispatch.splice(idx, 1);

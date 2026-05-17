@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 
 function printHelp() {
-  console.log(`martin-diagram\n\nUsage:\n  martin-diagram [options]               Start the editor server\n  martin-diagram parse <file>            Parse a .diagram file and report errors\n\nServer options:\n  --port <number>    Port for server and UI (default: 3001 or PORT env)\n  --dir <path>       Diagram directory to watch (default: current directory)\n  --no-open          Do not open browser automatically\n  -h, --help         Show this help\n`);
+  console.log(`martin-diagram\n\nUsage:\n  martin-diagram [options]               Start the editor server\n  martin-diagram parse <file>            Parse a .diagram file and report errors\n  martin-diagram lint <file>             Report semantic problems (unresolved refs, wrong kinds)\n\nServer options:\n  --port <number>    Port for server and UI (default: 3001 or PORT env)\n  --dir <path>       Diagram directory to watch (default: current directory)\n  --no-open          Do not open browser automatically\n  -h, --help         Show this help\n`);
 }
 
 function parseArgs(argv) {
@@ -143,8 +143,71 @@ async function runParseCommand(rawArgs) {
   }
 }
 
+async function runLintCommand(rawArgs) {
+  if (rawArgs.length === 0 || rawArgs[0] === '-h' || rawArgs[0] === '--help') {
+    console.log('Usage: martin-diagram lint <file>');
+    process.exit(rawArgs.length === 0 ? 1 : 0);
+  }
+  const file = resolve(rawArgs[0]);
+  if (!existsSync(file)) {
+    console.error(`File not found: ${file}`);
+    process.exit(1);
+  }
+  if (!existsSync(parserEntry)) {
+    console.log('Building parser...');
+    const build = spawnSync('pnpm', ['--dir', rootDir, '--filter', '@diagram/parser', 'build'], { stdio: 'inherit' });
+    if (build.status !== 0) process.exit(build.status ?? 1);
+  }
+  const { parse, lint } = await import(pathToFileURL(parserEntry).href);
+  const text = readFileSync(file, 'utf8');
+  const lines = text.split('\n');
+
+  let ast;
+  try {
+    ast = parse(text);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`Parse error: ${msg}`);
+    const m = msg.match(/at line (\d+)/);
+    if (m) {
+      const ln = parseInt(m[1], 10);
+      const from = Math.max(1, ln - 2);
+      const to = Math.min(lines.length, ln + 2);
+      console.error('');
+      for (let i = from; i <= to; i++) {
+        const marker = i === ln ? '>' : ' ';
+        console.error(`${marker} ${String(i).padStart(4)} | ${lines[i - 1] ?? ''}`);
+      }
+    }
+    process.exit(1);
+  }
+
+  const diagnostics = lint(ast);
+  if (diagnostics.length === 0) {
+    console.log('OK: no problems found.');
+    process.exit(0);
+  }
+
+  for (const d of diagnostics) {
+    const loc = d.line ? `line ${d.line}` : 'unknown line';
+    console.error(`${d.severity}: ${d.message} (${loc})`);
+    if (d.line) {
+      const src = lines[d.line - 1];
+      if (src !== undefined) console.error(`  ${String(d.line).padStart(4)} | ${src}`);
+    }
+  }
+  const errors = diagnostics.filter(d => d.severity === 'error').length;
+  const warnings = diagnostics.length - errors;
+  console.error('');
+  console.error(`${errors} error(s), ${warnings} warning(s).`);
+  process.exit(errors > 0 ? 1 : 0);
+}
+
 if (process.argv[2] === 'parse') {
   await runParseCommand(process.argv.slice(3));
+}
+if (process.argv[2] === 'lint') {
+  await runLintCommand(process.argv.slice(3));
 }
 
 const args = parseArgs(process.argv.slice(2));

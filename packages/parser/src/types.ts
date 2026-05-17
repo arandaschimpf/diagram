@@ -8,16 +8,24 @@ export type Field = {
   name: string;
   type: FieldType;
   optional: boolean;
+  line?: number;
 };
 
 export type Constraint = {
   kind: 'either' | 'unique';
   fields: string[];
+  line?: number;
 };
 
 export type Call = {
   kind: 'Action' | 'Query';
   target: string;
+  line?: number;
+};
+
+export type Dispatch = {
+  target: string;
+  line?: number;
 };
 
 export type Tag = 'deprecated' | 'experimental';
@@ -29,6 +37,16 @@ export type EntityNode = {
   constraints: Constraint[];
   tags: Tag[];
   comment?: string;
+  line?: number;
+};
+
+export type EnumNode = {
+  kind: 'Enum';
+  name: string;
+  variants: string[];
+  tags: Tag[];
+  comment?: string;
+  line?: number;
 };
 
 export type EventNode = {
@@ -37,6 +55,7 @@ export type EventNode = {
   payload: Field[];
   tags: Tag[];
   comment?: string;
+  line?: number;
 };
 
 export type EventHandlerNode = {
@@ -44,9 +63,10 @@ export type EventHandlerNode = {
   name: string;
   payload: Field[];
   calls: Call[];
-  dispatch: string[];
+  dispatch: Dispatch[];
   tags: Tag[];
   comment?: string;
+  line?: number;
 };
 
 export type QueryNode = {
@@ -57,6 +77,7 @@ export type QueryNode = {
   calls: Call[];
   tags: Tag[];
   comment?: string;
+  line?: number;
 };
 
 export type ActionNode = {
@@ -65,9 +86,10 @@ export type ActionNode = {
   inputs: Field[];
   response: Field[];
   calls: Call[];
-  dispatch: string[];
+  dispatch: Dispatch[];
   tags: Tag[];
   comment?: string;
+  line?: number;
 };
 
 export type ActorNode = {
@@ -76,6 +98,7 @@ export type ActorNode = {
   calls: Call[];
   tags: Tag[];
   comment?: string;
+  line?: number;
 };
 
 export type ServiceNode = {
@@ -85,10 +108,12 @@ export type ServiceNode = {
   children: DiagramNode[];
   tags: Tag[];
   comment?: string;
+  line?: number;
 };
 
 export type DiagramNode =
   | EntityNode
+  | EnumNode
   | EventNode
   | EventHandlerNode
   | QueryNode
@@ -96,8 +121,15 @@ export type DiagramNode =
   | ActorNode
   | ServiceNode;
 
+export type Diagnostic = {
+  severity: 'error' | 'warning';
+  message: string;
+  line?: number;
+};
+
 export type AST = {
   nodes: DiagramNode[];
+  warnings?: Diagnostic[];
 };
 
 export type Edge = {

@@ -1,6 +1,6 @@
 ---
 name: diagram-dsl
-description: Teaches and assists with the service diagram DSL language. Use when the user asks how to write a diagram, what syntax to use, wants to add nodes or connections, or asks about Entity/Event/EventHandler/Query/Action/Actor/external/@either/@unique syntax.
+description: Teaches and assists with the service diagram DSL language. Use when the user asks how to write a diagram, what syntax to use, wants to add nodes or connections, or asks about Entity/Enum/Event/EventHandler/Query/Action/Actor/external/@either/@unique syntax.
 ---
 
 You are an expert in the service diagram DSL used in this project. Your job is to teach the language, answer questions about it, and help the user write or fix DSL code.
@@ -51,6 +51,27 @@ Service Platform {
 
 ---
 
+### Enum (teal rectangle)
+A closed set of named variants. Reference it from an Entity field like any other node — that creates an arrow.
+
+```
+Enum OrderStatus {
+  pending
+  shipped
+  delivered
+  cancelled
+}
+
+Entity Order {
+  order_id: string
+  status:   OrderStatus   // → arrow to OrderStatus
+}
+```
+
+Variants are bare identifiers (one per line; commas are optional). Enums support a leading `//` comment and lifecycle tags (`@deprecated`, `@experimental`) just like other nodes.
+
+---
+
 ### Entity (blue rectangle)
 A data model with typed fields. Fields can reference other node names — those references become arrows in the diagram.
 
@@ -75,7 +96,7 @@ Entity Order {
 | `name?: string` | optional field |
 | `name: Platform::Auth::User` | qualified cross-service reference |
 
-Primitive types: `string`, `number`, `boolean`, `Date`
+Primitive types: `string`, `number`, `boolean`, `Date`, `UUID`
 
 #### Entity constraints
 
@@ -456,6 +477,25 @@ martin-diagram parse path/to/file.diagram
 Errors are precise: every parse error includes `at line N`, and unknown property keys inside a node body name the offender and the allowed keys (e.g. `Unknown property 'bogus' in Action at line 12 (expected one of: inputs, response, calls, dispatch)`). Use the line number to navigate straight to the issue rather than guessing.
 
 If the CLI isn't on `$PATH` (the package wasn't installed globally), run it directly: `node <repo>/bin/martin-diagram.mjs parse <file>`.
+
+## Linting a diagram
+
+Many problems parse cleanly but don't mean what you think — a typo in a field type, an unprefixed `calls` entry (silently dropped), a `dispatch` target that isn't actually an `Event`. Run the linter to surface them:
+
+```
+martin-diagram lint path/to/file.diagram
+```
+
+It reports each problem with severity, message, and **line number**:
+
+- Entity fields whose type references an unknown node
+- `@either` / `@unique` referencing a field that doesn't exist
+- `calls` entries missing the `Action`/`Query` prefix (otherwise silently ignored)
+- `calls` targets that don't resolve, or resolve to the wrong kind
+- `dispatch` entries missing the `Event` prefix (otherwise silently ignored)
+- `dispatch` targets that don't resolve, or resolve to something that isn't an `Event`
+
+Lint warnings do not stop the diagram from rendering — they're advisory. Run them when adding nodes or chasing a "why isn't this arrow showing up?" mystery.
 
 ---
 

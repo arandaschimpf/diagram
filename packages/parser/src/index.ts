@@ -1,9 +1,10 @@
 export { parse, isReference } from './parser.js';
 export { serialize } from './serializer.js';
 export { inferEdges } from './edges.js';
+export { lint } from './lint.js';
 export { diffRenames, migrateLayout } from './diffRenames.js';
 export type { Rename, Layout } from './diffRenames.js';
 export type {
-  AST, ServiceNode, DiagramNode, EntityNode, EventNode, EventHandlerNode,
-  QueryNode, ActionNode, ActorNode, Field, FieldType, Edge, Constraint,
+  AST, ServiceNode, DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode,
+  QueryNode, ActionNode, ActorNode, Field, FieldType, Edge, Constraint, Call, Dispatch, Diagnostic, Tag,
 } from './types.js';

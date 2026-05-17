@@ -1,11 +1,11 @@
 import type {
-  AST, ServiceNode, DiagramNode, EntityNode, EventNode, EventHandlerNode,
-  QueryNode, ActionNode, ActorNode, Field, FieldType, Constraint, Call, Tag,
+  AST, ServiceNode, DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode,
+  QueryNode, ActionNode, ActorNode, Field, FieldType, Constraint, Call, Dispatch, Tag, Diagnostic,
 } from './types.js';
 
 const KNOWN_TAGS: ReadonlySet<Tag> = new Set<Tag>(['deprecated', 'experimental']);
 
-const PRIMITIVES = new Set(['string', 'number', 'boolean', 'Date', 'null']);
+const PRIMITIVES = new Set(['string', 'number', 'boolean', 'Date', 'UUID', 'null']);
 
 type Token =
   | { kind: 'ident'; value: string; line: number }
@@ -37,7 +37,7 @@ function tokenize(src: string): Token[] {
       i += 2;
       continue;
     }
-    if ('{}[]:|?@'.includes(src[i])) {
+    if ('{}[]:|?@,'.includes(src[i])) {
       tokens.push({ kind: 'symbol', value: src[i], line });
       i++;
       continue;
@@ -81,6 +81,7 @@ function atLine(t: Token): string {
 class Parser {
   private tokens: Token[];
   private pos = 0;
+  private warnings: Diagnostic[] = [];
 
   constructor(src: string) {
     this.tokens = tokenize(src);
@@ -89,11 +90,11 @@ class Parser {
   private peek(): Token { return this.tokens[this.pos]; }
   private consume(): Token { return this.tokens[this.pos++]; }
 
-  private expectIdent(value?: string): string {
+  private expectIdent(value?: string): { value: string; line: number } {
     const t = this.consume();
     if (t.kind !== 'ident') throw new Error(`Expected identifier, got ${describeToken(t)}${atLine(t)}`);
     if (value && t.value !== value) throw new Error(`Expected '${value}', got '${t.value}'${atLine(t)}`);
-    return t.value;
+    return { value: t.value, line: t.line };
   }
 
   private expectSymbol(value: string): void {
@@ -134,11 +135,12 @@ class Parser {
       if (this.peek().kind === 'comment') { this.consume(); continue; }
       nodes.push(this.parseNode());
     }
-    return { nodes };
+    return { nodes, warnings: this.warnings.length > 0 ? this.warnings : undefined };
   }
 
-  private parseService(external = false): ServiceNode {
-    this.expectIdent('Service');
+  private parseService(external = false, declLine?: number): ServiceNode {
+    const kw = this.expectIdent('Service');
+    const line = declLine ?? kw.line;
     const name = this.expectIdent();
     this.expectSymbol('{');
     const comment = this.consumeLeadingComment();
@@ -152,7 +154,7 @@ class Parser {
       children.push(this.parseNode());
     }
     this.expectSymbol('}');
-    return { kind: 'Service', name, external, children, tags, comment };
+    return { kind: 'Service', name: name.value, external, children, tags, comment, line };
   }
 
   private parseNode(): DiagramNode {
@@ -160,22 +162,23 @@ class Parser {
     if (t.kind !== 'ident') throw new Error(`Expected node keyword, got ${describeToken(t)}${atLine(t)}`);
     switch (t.value) {
       case 'external': {
-        this.consume();
-        return this.parseService(true);
+        const ext = this.consume();
+        return this.parseService(true, ext.line);
       }
       case 'Service': return this.parseService(false);
       case 'Entity': return this.parseEntity();
+      case 'Enum': return this.parseEnum();
       case 'Event': return this.parseEvent();
       case 'EventHandler': return this.parseEventHandler();
       case 'Query': return this.parseQuery();
       case 'Action': return this.parseAction();
       case 'Actor': return this.parseActor();
-      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Event, EventHandler, Query, Action, Actor, external)`);
+      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Enum, Event, EventHandler, Query, Action, Actor, external)`);
     }
   }
 
   private parseEntity(): EntityNode {
-    this.expectIdent('Entity');
+    const kw = this.expectIdent('Entity');
     const name = this.expectIdent();
     this.expectSymbol('{');
     const comment = this.consumeLeadingComment();
@@ -189,26 +192,26 @@ class Parser {
       if (this.tryParseTag(tags)) continue;
 
       if (this.peekIs('symbol', '@')) {
-        this.consume(); // '@'
+        const at = this.consume(); // '@'
         const tag = this.expectIdent();
         this.expectSymbol(':');
         this.expectSymbol('[');
         const fieldNames: string[] = [];
         while (!this.peekIs('symbol', ']')) {
           if (this.peek().kind === 'eof') break;
-          if (this.peek().kind === 'ident') fieldNames.push(this.expectIdent());
+          if (this.peek().kind === 'ident') fieldNames.push(this.expectIdent().value);
           else this.consume();
         }
         this.expectSymbol(']');
-        if (tag === 'either' || tag === 'unique') {
-          constraints.push({ kind: tag, fields: fieldNames });
+        if (tag.value === 'either' || tag.value === 'unique') {
+          constraints.push({ kind: tag.value, fields: fieldNames, line: at.line });
         }
         continue;
       }
 
       const savedPos = this.pos;
       try {
-        const fieldName = this.expectIdent();
+        const fieldTok = this.expectIdent();
         let optional = false;
         if (this.peekIs('symbol', '?')) {
           this.consume();
@@ -221,7 +224,7 @@ class Parser {
         }
         this.expectSymbol(':');
         const type = this.parseFieldType();
-        fields.push({ name: fieldName, type, optional });
+        fields.push({ name: fieldTok.value, type, optional, line: fieldTok.line });
       } catch {
         this.pos = savedPos;
         this.consume();
@@ -229,11 +232,33 @@ class Parser {
     }
 
     this.expectSymbol('}');
-    return { kind: 'Entity', name, fields, constraints, tags, comment };
+    return { kind: 'Entity', name: name.value, fields, constraints, tags, comment, line: kw.line };
+  }
+
+  private parseEnum(): EnumNode {
+    const kw = this.expectIdent('Enum');
+    const name = this.expectIdent();
+    this.expectSymbol('{');
+    const comment = this.consumeLeadingComment();
+    const variants: string[] = [];
+    const tags: Tag[] = [];
+    while (this.tryParseTag(tags)) { /* consume leading tags */ }
+    while (!this.peekIs('symbol', '}')) {
+      if (this.peek().kind === 'eof') break;
+      if (this.peek().kind === 'comment') { this.consume(); continue; }
+      if (this.peek().kind === 'ident') {
+        variants.push(this.expectIdent().value);
+      } else {
+        // skip commas and stray symbols
+        this.consume();
+      }
+    }
+    this.expectSymbol('}');
+    return { kind: 'Enum', name: name.value, variants, tags, comment, line: kw.line };
   }
 
   private parseEvent(): EventNode {
-    this.expectIdent('Event');
+    const kw = this.expectIdent('Event');
     const name = this.expectIdent();
     let payload: Field[] = [];
     const tags: Tag[] = [];
@@ -245,17 +270,17 @@ class Parser {
       payload = this.parseFields();
       this.expectSymbol('}');
     }
-    return { kind: 'Event', name, payload, tags, comment };
+    return { kind: 'Event', name: name.value, payload, tags, comment, line: kw.line };
   }
 
   private parseEventHandler(): EventHandlerNode {
-    this.expectIdent('EventHandler');
+    const kw = this.expectIdent('EventHandler');
     const name = this.expectIdent();
     this.expectSymbol('{');
     const comment = this.consumeLeadingComment();
     let payload: Field[] = [];
     const calls: Call[] = [];
-    const dispatch: string[] = [];
+    const dispatch: Dispatch[] = [];
     const tags: Tag[] = [];
     while (!this.peekIs('symbol', '}')) {
       if (this.peek().kind === 'eof') break;
@@ -276,11 +301,11 @@ class Parser {
       }
     }
     this.expectSymbol('}');
-    return { kind: 'EventHandler', name, payload, calls, dispatch, tags, comment };
+    return { kind: 'EventHandler', name: name.value, payload, calls, dispatch, tags, comment, line: kw.line };
   }
 
   private parseQuery(): QueryNode {
-    this.expectIdent('Query');
+    const kw = this.expectIdent('Query');
     const name = this.expectIdent();
     this.expectSymbol('{');
     const comment = this.consumeLeadingComment();
@@ -311,18 +336,18 @@ class Parser {
       }
     }
     this.expectSymbol('}');
-    return { kind: 'Query', name, inputs, response, calls, tags, comment };
+    return { kind: 'Query', name: name.value, inputs, response, calls, tags, comment, line: kw.line };
   }
 
   private parseAction(): ActionNode {
-    this.expectIdent('Action');
+    const kw = this.expectIdent('Action');
     const name = this.expectIdent();
     this.expectSymbol('{');
     const comment = this.consumeLeadingComment();
     let inputs: Field[] = [];
     let response: Field[] = [];
     const calls: Call[] = [];
-    const dispatch: string[] = [];
+    const dispatch: Dispatch[] = [];
     const tags: Tag[] = [];
     while (!this.peekIs('symbol', '}')) {
       if (this.peek().kind === 'eof') break;
@@ -349,11 +374,11 @@ class Parser {
       }
     }
     this.expectSymbol('}');
-    return { kind: 'Action', name, inputs, response, calls, dispatch, tags, comment };
+    return { kind: 'Action', name: name.value, inputs, response, calls, dispatch, tags, comment, line: kw.line };
   }
 
   private parseActor(): ActorNode {
-    this.expectIdent('Actor');
+    const kw = this.expectIdent('Actor');
     const name = this.expectIdent();
     let comment: string | undefined;
     const calls: Call[] = [];
@@ -373,7 +398,7 @@ class Parser {
       }
       this.expectSymbol('}');
     }
-    return { kind: 'Actor', name, calls, tags, comment };
+    return { kind: 'Actor', name: name.value, calls, tags, comment, line: kw.line };
   }
 
   /**
@@ -402,15 +427,30 @@ class Parser {
     return true;
   }
 
-  private parseDispatchList(out: string[]): void {
+  private parseDispatchList(out: Dispatch[]): void {
     this.expectIdent('dispatch');
     this.expectSymbol(':');
     this.expectSymbol('[');
     while (!this.peekIs('symbol', ']')) {
       if (this.peek().kind === 'eof') break;
-      if (this.peekIs('ident', 'Event')) this.consume();
-      if (this.peek().kind === 'ident') out.push(this.expectIdent());
-      else this.consume();
+      const tok = this.peek();
+      if (tok.kind === 'ident' && tok.value === 'Event') {
+        this.consume();
+        if (this.peek().kind === 'ident') {
+          const target = this.expectIdent();
+          out.push({ target: target.value, line: target.line });
+        }
+      } else if (tok.kind === 'ident') {
+        // Unprefixed entry — warn and skip
+        const dropped = this.expectIdent();
+        this.warnings.push({
+          severity: 'warning',
+          message: `dispatch entry '${dropped.value}' is missing the 'Event' prefix and will be ignored`,
+          line: dropped.line,
+        });
+      } else {
+        this.consume();
+      }
     }
     this.expectSymbol(']');
   }
@@ -423,13 +463,20 @@ class Parser {
       if (this.peek().kind === 'eof') break;
       const t = this.peek();
       if (t.kind === 'ident' && (t.value === 'Action' || t.value === 'Query')) {
-        const kind = this.expectIdent() as 'Action' | 'Query';
+        const kind = this.expectIdent();
         if (this.peek().kind === 'ident') {
           const target = this.expectIdent();
-          out.push({ kind, target });
+          out.push({ kind: kind.value as 'Action' | 'Query', target: target.value, line: kind.line });
         }
+      } else if (t.kind === 'ident') {
+        // Unprefixed call entry — warn and skip
+        const dropped = this.expectIdent();
+        this.warnings.push({
+          severity: 'warning',
+          message: `calls entry '${dropped.value}' is missing an 'Action' or 'Query' prefix and will be ignored`,
+          line: dropped.line,
+        });
       } else {
-        // Unprefixed or stray token — silently skip
         this.consume();
       }
     }
@@ -445,7 +492,7 @@ class Parser {
 
       const savedPos = this.pos;
       try {
-        const fieldName = this.expectIdent();
+        const fieldTok = this.expectIdent();
         let optional = false;
         if (this.peekIs('symbol', '?')) {
           this.consume();
@@ -458,7 +505,7 @@ class Parser {
         }
         this.expectSymbol(':');
         const type = this.parseFieldType();
-        fields.push({ name: fieldName, type, optional });
+        fields.push({ name: fieldTok.value, type, optional, line: fieldTok.line });
       } catch {
         this.pos = savedPos;
         this.consume();
@@ -481,14 +528,14 @@ class Parser {
     if (this.peekIs('symbol', '|')) {
       this.consume();
       const next = this.expectIdent();
-      if (next === 'null') nullable = true;
+      if (next.value === 'null') nullable = true;
       while (this.peekIs('symbol', '|')) {
         this.consume();
         this.consume();
       }
     }
 
-    return { base, nullable, array };
+    return { base: base.value, nullable, array };
   }
 }
 

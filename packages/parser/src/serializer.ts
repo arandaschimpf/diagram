@@ -40,6 +40,13 @@ function serializeNode(node: DiagramNode, indent: string): string {
       const body = [fields, constraints].filter(Boolean).join('\n');
       return `${indent}Entity ${node.name} {\n${commentStr}${tagsStr}${body}\n${indent}}`;
     }
+    case 'Enum': {
+      const commentStr = serializeComment(node.comment, i2);
+      const tagsStr = serializeTags(node.tags, i2);
+      const variants = node.variants.map(v => `${i2}${v}`).join('\n');
+      const body = variants ? `${variants}\n` : '';
+      return `${indent}Enum ${node.name} {\n${commentStr}${tagsStr}${body}${indent}}`;
+    }
     case 'Event': {
       if (node.payload.length === 0 && !node.comment && node.tags.length === 0) return `${indent}Event ${node.name}`;
       const commentStr = serializeComment(node.comment, i2);
@@ -61,7 +68,7 @@ function serializeNode(node: DiagramNode, indent: string): string {
         parts.push(`${i2}calls: [\n${entries}\n${i2}]`);
       }
       if (node.dispatch.length > 0) {
-        const dispatches = node.dispatch.map(e => `${i2}  Event ${e}`).join('\n');
+        const dispatches = node.dispatch.map(e => `${i2}  Event ${e.target}`).join('\n');
         parts.push(`${i2}dispatch: [\n${dispatches}\n${i2}]`);
       }
       return `${indent}EventHandler ${node.name} {\n${commentStr}${tagsStr}${parts.join('\n')}\n${indent}}`;
@@ -101,7 +108,7 @@ function serializeNode(node: DiagramNode, indent: string): string {
         parts.push(`${i2}calls: [\n${entries}\n${i2}]`);
       }
       if (node.dispatch.length > 0) {
-        const dispatches = node.dispatch.map(e => `${i2}  Event ${e}`).join('\n');
+        const dispatches = node.dispatch.map(e => `${i2}  Event ${e.target}`).join('\n');
         parts.push(`${i2}dispatch: [\n${dispatches}\n${i2}]`);
       }
       return `${indent}Action ${node.name} {\n${commentStr}${tagsStr}${parts.join('\n')}\n${indent}}`;

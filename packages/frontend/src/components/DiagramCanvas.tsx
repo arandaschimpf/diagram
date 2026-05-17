@@ -10,7 +10,7 @@ import '@xyflow/react/dist/style.css';
 import { toPng } from 'html-to-image';
 
 import {
-  EntityNodeComp, EventNodeComp, EventHandlerNodeComp,
+  EntityNodeComp, EnumNodeComp, EventNodeComp, EventHandlerNodeComp,
   QueryNodeComp, ActionNodeComp, ActorNodeComp, ServiceNodeComp,
 } from './nodes';
 import type { Layout } from '../dslToFlow';
@@ -19,6 +19,7 @@ import { computeAutoLayout } from '../autoLayout';
 
 const nodeTypes = {
   entity: EntityNodeComp,
+  enum: EnumNodeComp,
   event: EventNodeComp,
   eventhandler: EventHandlerNodeComp,
   query: QueryNodeComp,
@@ -30,6 +31,8 @@ const nodeTypes = {
 const EXPORT_ZOOM = 1.5;
 const EXPORT_PADDING = 80;
 
+export type FocusTarget = { nodeId: string; nonce: number };
+
 interface Props {
   nodes: Node[];
   edges: Edge[];
@@ -39,6 +42,7 @@ interface Props {
   onNodeRightClick?: (nodeId: string, nodeType: string) => void;
   onAddEdge?: (sourceId: string, targetId: string, targetKind: TargetKind) => void;
   onDeleteEdge?: (sourceId: string, targetId: string, targetKind: TargetKind) => void;
+  focusTarget?: FocusTarget | null;
 }
 
 const SOURCE_KINDS = new Set(['action', 'eventhandler', 'actor']);
@@ -138,6 +142,19 @@ function AutoLayoutButton({
   );
 }
 
+function FocusHandler({ target, setNodes }: { target: FocusTarget | null | undefined; setNodes: (updater: (nodes: Node[]) => Node[]) => void }) {
+  const { fitView, getNode } = useReactFlow();
+  useEffect(() => {
+    if (!target) return;
+    const n = getNode(target.nodeId);
+    if (!n) return;
+    fitView({ nodes: [{ id: target.nodeId }], duration: 400, maxZoom: 1.2, padding: 0.4 });
+    setNodes(curr => curr.map(node => ({ ...node, selected: node.id === target.nodeId })));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.nodeId, target?.nonce]);
+  return null;
+}
+
 function SavePngButton({ filename }: { filename: string }) {
   const { getNodes } = useReactFlow();
 
@@ -195,7 +212,7 @@ function SavePngButton({ filename }: { filename: string }) {
   );
 }
 
-export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, currentLayout, onLayoutChange, onNodeRightClick, onAddEdge, onDeleteEdge }: Props) {
+export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, currentLayout, onLayoutChange, onNodeRightClick, onAddEdge, onDeleteEdge, focusTarget }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState(propNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(propEdges);
   const [animating, setAnimating] = useState(false);
@@ -272,6 +289,7 @@ export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, cu
           panActivationKeyCode={null}
           proOptions={{ hideAttribution: true }}
         >
+          <FocusHandler target={focusTarget} setNodes={setNodes} />
           <Background color="#333" gap={16} />
           <Controls>
             <AutoLayoutButton currentLayout={currentLayout} setAnimating={setAnimating} onLayoutChange={onLayoutChange} />

@@ -63,8 +63,8 @@ function collectEdges(
 
     if (node.kind === 'EventHandler') {
       const handler = node as EventHandlerNode;
-      for (const eventName of handler.dispatch) {
-        const toId = resolve(eventName, prefix, siblingMap, globalIndex);
+      for (const d of handler.dispatch) {
+        const toId = resolve(d.target, prefix, siblingMap, globalIndex);
         if (toId) edges.push({ from: fromId, to: toId, dashed: false });
       }
       for (const call of handler.calls) {
@@ -79,8 +79,8 @@ function collectEdges(
         const toId = resolve(call.target, prefix, siblingMap, globalIndex);
         if (toId) edges.push({ from: fromId, to: toId, dashed: false });
       }
-      for (const eventName of action.dispatch) {
-        const toId = resolve(eventName, prefix, siblingMap, globalIndex);
+      for (const d of action.dispatch) {
+        const toId = resolve(d.target, prefix, siblingMap, globalIndex);
         if (toId) edges.push({ from: fromId, to: toId, dashed: false });
       }
     }

@@ -1,6 +1,6 @@
 import { useCallback, useContext } from 'react';
 import { Handle, Position, NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
-import type { DiagramNode, EntityNode, EventNode, EventHandlerNode, QueryNode, ActionNode, ActorNode } from '@diagram/parser';
+import type { DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode, QueryNode, ActionNode, ActorNode } from '@diagram/parser';
 import { DiagramCallbackContext } from '../diagramContext';
 import type { Layout } from '../dslToFlow';
 
@@ -93,6 +93,30 @@ export function EntityNodeComp({ data }: NodeProps) {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Enum (teal rectangle) ─────────────────────────────────────────────────────
+
+export function EnumNodeComp({ data }: NodeProps) {
+  const node = (data as NodeData).node as EnumNode;
+  return (
+    <div style={styles.enum}>
+      <Handle type="target" position={Position.Left} style={HANDLE_STYLE} />
+      <Handle type="source" position={Position.Right} style={HANDLE_STYLE} />
+      <div style={styles.enumTitle}>{node.name}</div>
+      <div style={styles.entityBody}>
+        {node.comment && (
+          <>
+            <div style={styles.nodeComment}>{node.comment}</div>
+            {node.variants.length > 0 && <div style={styles.commentDivider} />}
+          </>
+        )}
+        {node.variants.map(v => (
+          <div key={v} style={styles.enumVariant}>{v}</div>
+        ))}
       </div>
     </div>
   );
@@ -386,6 +410,29 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     fontStyle: 'italic',
     whiteSpace: 'nowrap',
+  },
+
+  enum: {
+    background: '#c9ebe5',
+    border: '1.5px solid #2f8f80',
+    borderRadius: 4,
+    width: 'max-content',
+    minWidth: 180,
+    fontFamily: 'monospace',
+    fontSize: 12,
+    boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+  },
+  enumTitle: {
+    background: '#2f8f80',
+    color: '#fff',
+    fontWeight: 700,
+    padding: '4px 10px',
+    borderRadius: '2px 2px 0 0',
+    fontSize: 13,
+  },
+  enumVariant: {
+    color: '#114a42',
+    fontWeight: 500,
   },
 
   event: {
