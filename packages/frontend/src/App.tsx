@@ -6,6 +6,7 @@ import { DiagramCanvas } from './components/DiagramCanvas';
 import { useFileSync } from './hooks/useFileSync';
 import { dslToFlow } from './dslToFlow';
 import type { Layout } from './dslToFlow';
+import { addEdgeToCode, removeEdgeFromCode, type TargetKind } from './editDsl';
 
 const DEFAULT_EDITOR_WIDTH = 420;
 const MIN_EDITOR_WIDTH = 200;
@@ -99,6 +100,16 @@ export default function App() {
 
   const handleLayoutChange = (newLayout: Layout) => updateLayout(newLayout);
 
+  const handleAddEdge = useCallback((sourceId: string, targetId: string, targetKind: TargetKind) => {
+    const next = addEdgeToCode(code, sourceId, targetId, targetKind);
+    if (next !== code) updateCode(next);
+  }, [code, updateCode]);
+
+  const handleDeleteEdge = useCallback((sourceId: string, targetId: string, targetKind: TargetKind) => {
+    const next = removeEdgeFromCode(code, sourceId, targetId, targetKind);
+    if (next !== code) updateCode(next);
+  }, [code, updateCode]);
+
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     isDragging.current = true;
     dragStartX.current = e.clientX;
@@ -169,8 +180,11 @@ export default function App() {
               nodes={nodes}
               edges={edges}
               filename={currentFile ?? undefined}
+              currentLayout={layout}
               onLayoutChange={handleLayoutChange}
               onNodeRightClick={handleNodeRightClick}
+              onAddEdge={handleAddEdge}
+              onDeleteEdge={handleDeleteEdge}
             />
           </div>
         </div>

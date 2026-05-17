@@ -57,3 +57,12 @@ React 19 + Vite app with a split-pane UI:
 ## Module System
 
 All packages are ES modules (`"type": "module"`). TypeScript targets ES2022 for backend/parser, ES2020 for frontend. Backend uses `tsx` for development, `tsc` for production builds.
+
+## Language changes
+
+When making changes to the DSL (new node types, syntax, constraints, etc.), update **all** of:
+- `packages/parser` — the parser/serializer/edge inference
+- `packages/skills/diagram-dsl/SKILL.md` — the skill that teaches the language
+- `language.md` — the user-facing language reference
+
+The three must stay in sync.

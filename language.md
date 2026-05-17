@@ -112,13 +112,16 @@ Event PaymentReceived {
 
 Handles incoming events. Arrows are drawn to every node in `calls` and `dispatch`.
 
+Each `calls` entry **must** be prefixed with `Action` or `Query` (matching the kind of the target node). Unprefixed entries are silently ignored.
+
 ```
 EventHandler ProcessPayment {
   payload: {
     amount: number
   }
   calls: [
-    Stripe::Charge        // cross-service call
+    Action Stripe::Charge       // cross-service action
+    Query  Pricing::GetPrice    // cross-service query
   ]
   dispatch: [
     Event PaymentSuccess
@@ -131,7 +134,7 @@ EventHandler ProcessPayment {
 
 ## Query
 
-A read operation.
+A read operation. Can declare synchronous `calls` to other queries or actions it needs to fulfill the read (same `Action`/`Query` prefix as `EventHandler.calls`).
 
 ```
 Query GetOrders {
@@ -143,6 +146,9 @@ Query GetOrders {
     data: Order[]
     total: number
   }
+  calls: [
+    Query Pricing::GetPrice
+  ]
 }
 ```
 
@@ -150,7 +156,7 @@ Query GetOrders {
 
 ## Action
 
-A write operation. `calls` entries draw arrows to dependencies.
+A write operation. `calls` entries draw arrows to dependencies; each entry must be prefixed with `Action` or `Query`. Actions can also emit events via `dispatch:` (same `Event` prefix as `EventHandler`) and declare a `response:` block for the data they return.
 
 ```
 Action CreateOrder {
@@ -158,8 +164,17 @@ Action CreateOrder {
     userId: string
     items:  OrderItem[]
   }
+  response: {
+    orderId: string
+    status:  string
+  }
   calls: [
-    Inventory::ReserveStock
+    Action Inventory::ReserveStock
+    Query  Pricing::GetPrice
+  ]
+  dispatch: [
+    Event OrderCreated
+    Event OrderFailed
   ]
 }
 ```
@@ -168,7 +183,7 @@ Action CreateOrder {
 
 ## Actor
 
-An external agent that initiates flows. Supports an optional body for a comment.
+An external agent that initiates flows (user, cron, webhook). Supports an optional body with a leading comment and/or a `calls` list. Actor calls target `Action` and `Query` nodes only — actors do not dispatch events.
 
 ```
 Actor User
@@ -176,8 +191,40 @@ Actor StripeWebhook
 
 Actor AdminDashboard {
   // Internal tool used by the ops team
+  calls: [
+    Action Orders::CancelOrder
+    Query  Orders::GetOrders
+  ]
 }
 ```
+
+---
+
+## Lifecycle tags
+
+Mark any node with body-level lifecycle metadata. Two tags are supported:
+
+- `@deprecated` — node is on its way out; callers should migrate away.
+- `@experimental` — node is new/unstable; signature may change.
+
+Tags work on every node type with a body (`Entity`, `Event`, `EventHandler`, `Query`, `Action`, `Actor`, `Service`). Tags are orthogonal — a node can carry both. Only leading tags (at the top of the body, after any comment) are captured; tags written later in the body are silently ignored. For nodes that normally have no body (`Event` without payload, `Actor`), add a body solely to carry tags.
+
+```
+Service Orders {
+  @deprecated
+
+  Action CreateOrder {
+    @experimental
+    inputs: { userId: string }
+  }
+
+  Event OrderCreated {
+    @deprecated
+  }
+}
+```
+
+Tags do not affect edge inference; they are metadata for the renderer.
 
 ---
 
@@ -226,16 +273,23 @@ Mid-body `//` lines (after fields) are silently ignored; only leading ones are c
 Arrows require no manual wiring — they come from the data:
 
 - **Entity field** whose type is another node → arrow (dashed if `| null` or `?`)
-- **EventHandler `calls`** → arrow to each listed node
+- **EventHandler `calls`** → arrow to each `Action`/`Query` listed
 - **EventHandler `dispatch`** → arrow to each listed event
-- **Action `calls`** → arrow to each listed node
+- **Action `calls`** → arrow to each `Action`/`Query` listed
+- **Action `dispatch`** → arrow to each listed event
+- **Actor `calls`** → arrow to each `Action`/`Query` listed
 
 ---
 
 ## Full example
 
 ```
-Actor User
+Actor User {
+  calls: [
+    Action Orders::CancelOrder
+    Query  Orders::GetOrders
+  ]
+}
 
 external Service Stripe {
   Query Charge {
@@ -274,7 +328,7 @@ Service Orders {
       currency: string
     }
     calls: [
-      Stripe::Charge
+      Query Stripe::Charge
     ]
     dispatch: [
       Event OrderPlaced

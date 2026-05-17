@@ -16,8 +16,8 @@ export function registerDiagramLanguage(monaco: Monaco) {
         // Line comments
         [/\/\/.*$/, 'comment'],
 
-        // Constraint annotations (@either, @unique)
-        [/@(either|unique)\b/, 'keyword.constraint'],
+        // Constraint and tag annotations (@either, @unique, @deprecated, @experimental)
+        [/@(either|unique|deprecated|experimental)\b/, 'keyword.constraint'],
 
         // Keywords
         [/\b(Service|Entity|Event|EventHandler|Query|Action|Actor|external)\b/, 'keyword'],

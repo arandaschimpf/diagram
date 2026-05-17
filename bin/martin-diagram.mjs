@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 function printHelp() {
-  console.log(`martin-diagram\n\nUsage:\n  martin-diagram [options]\n\nOptions:\n  --port <number>    Port for server and UI (default: 3001 or PORT env)\n  --dir <path>       Diagram directory to watch (default: current directory)\n  --no-open          Do not open browser automatically\n  -h, --help         Show this help\n`);
+  console.log(`martin-diagram\n\nUsage:\n  martin-diagram [options]               Start the editor server\n  martin-diagram parse <file>            Parse a .diagram file and report errors\n\nServer options:\n  --port <number>    Port for server and UI (default: 3001 or PORT env)\n  --dir <path>       Diagram directory to watch (default: current directory)\n  --no-open          Do not open browser automatically\n  -h, --help         Show this help\n`);
 }
 
 function parseArgs(argv) {
@@ -84,11 +85,69 @@ function openUrl(url) {
   spawn('xdg-open', [url], { stdio: 'ignore', detached: true }).unref();
 }
 
-const args = parseArgs(process.argv.slice(2));
 const thisFile = fileURLToPath(import.meta.url);
 const rootDir = resolve(dirname(thisFile), '..');
 const backendEntry = join(rootDir, 'packages', 'backend', 'dist', 'index.js');
 const frontendEntry = join(rootDir, 'packages', 'frontend', 'dist', 'index.html');
+const parserEntry = join(rootDir, 'packages', 'parser', 'dist', 'index.js');
+
+async function runParseCommand(rawArgs) {
+  if (rawArgs.length === 0 || rawArgs[0] === '-h' || rawArgs[0] === '--help') {
+    console.log('Usage: martin-diagram parse <file>');
+    process.exit(rawArgs.length === 0 ? 1 : 0);
+  }
+  const file = resolve(rawArgs[0]);
+  if (!existsSync(file)) {
+    console.error(`File not found: ${file}`);
+    process.exit(1);
+  }
+  if (!existsSync(parserEntry)) {
+    console.log('Building parser...');
+    const build = spawnSync('pnpm', ['--dir', rootDir, '--filter', '@diagram/parser', 'build'], { stdio: 'inherit' });
+    if (build.status !== 0) process.exit(build.status ?? 1);
+  }
+  const { parse, inferEdges } = await import(pathToFileURL(parserEntry).href);
+  const text = readFileSync(file, 'utf8');
+  const lines = text.split('\n');
+
+  try {
+    const ast = parse(text);
+    const edges = inferEdges(ast);
+
+    let leafCount = 0;
+    const walk = (nodes) => {
+      for (const n of nodes) {
+        if (n.kind === 'Service') walk(n.children);
+        else leafCount++;
+      }
+    };
+    walk(ast.nodes);
+
+    console.log(`OK: ${ast.nodes.length} top-level node(s), ${leafCount} leaf node(s), ${edges.length} edge(s).`);
+    process.exit(0);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`Parse error: ${msg}`);
+    const m = msg.match(/at line (\d+)/);
+    if (m) {
+      const ln = parseInt(m[1], 10);
+      const from = Math.max(1, ln - 2);
+      const to = Math.min(lines.length, ln + 2);
+      console.error('');
+      for (let i = from; i <= to; i++) {
+        const marker = i === ln ? '>' : ' ';
+        console.error(`${marker} ${String(i).padStart(4)} | ${lines[i - 1] ?? ''}`);
+      }
+    }
+    process.exit(1);
+  }
+}
+
+if (process.argv[2] === 'parse') {
+  await runParseCommand(process.argv.slice(3));
+}
+
+const args = parseArgs(process.argv.slice(2));
 
 if (!existsSync(backendEntry) || !existsSync(frontendEntry)) {
   console.log('Building martin-diagram...');

@@ -34,10 +34,14 @@ export function useFileSync(fileName: string | null) {
       if (!fileName) return;
       try {
         const msg = JSON.parse(ev.data as string) as { type: string; file: string };
+        if (msg.file !== fileName) return;
+        if (msg.type === 'layout-change') {
+          // Backend migrated the layout file (e.g. after a rename). Pull fresh.
+          getLayout(fileName).then(setLayout);
+          return;
+        }
         if (msg.type !== 'change' && msg.type !== 'add') return;
-        // Match by filename stem
-        if (!msg.file.endsWith(`${fileName}.diagram`)) return;
-        // Skip reloads triggered by our own in-app saves
+        // Skip code reloads triggered by our own in-app saves.
         if (isSavingRef.current) return;
         loadFile(fileName);
       } catch { /* ignore malformed messages */ }

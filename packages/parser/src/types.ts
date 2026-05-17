@@ -15,11 +15,19 @@ export type Constraint = {
   fields: string[];
 };
 
+export type Call = {
+  kind: 'Action' | 'Query';
+  target: string;
+};
+
+export type Tag = 'deprecated' | 'experimental';
+
 export type EntityNode = {
   kind: 'Entity';
   name: string;
   fields: Field[];
   constraints: Constraint[];
+  tags: Tag[];
   comment?: string;
 };
 
@@ -27,6 +35,7 @@ export type EventNode = {
   kind: 'Event';
   name: string;
   payload: Field[];
+  tags: Tag[];
   comment?: string;
 };
 
@@ -34,8 +43,9 @@ export type EventHandlerNode = {
   kind: 'EventHandler';
   name: string;
   payload: Field[];
-  calls: string[];
+  calls: Call[];
   dispatch: string[];
+  tags: Tag[];
   comment?: string;
 };
 
@@ -44,6 +54,8 @@ export type QueryNode = {
   name: string;
   inputs: Field[];
   response: Field[];
+  calls: Call[];
+  tags: Tag[];
   comment?: string;
 };
 
@@ -51,13 +63,18 @@ export type ActionNode = {
   kind: 'Action';
   name: string;
   inputs: Field[];
-  calls: string[];
+  response: Field[];
+  calls: Call[];
+  dispatch: string[];
+  tags: Tag[];
   comment?: string;
 };
 
 export type ActorNode = {
   kind: 'Actor';
   name: string;
+  calls: Call[];
+  tags: Tag[];
   comment?: string;
 };
 
@@ -66,6 +83,7 @@ export type ServiceNode = {
   name: string;
   external: boolean;
   children: DiagramNode[];
+  tags: Tag[];
   comment?: string;
 };
 

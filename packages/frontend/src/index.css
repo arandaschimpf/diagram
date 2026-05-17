@@ -8,3 +8,43 @@ html, body, #root {
   background: #1a1a1a;
   color: #eee;
 }
+
+/* Animate node moves during auto-layout */
+.diagram-animating .react-flow__node {
+  transition: transform 300ms cubic-bezier(0.4, 0.0, 0.2, 1),
+              width 300ms cubic-bezier(0.4, 0.0, 0.2, 1),
+              height 300ms cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+.diagram-animating .react-flow__edge {
+  transition: opacity 300ms ease;
+}
+
+/* Higher-contrast XYFlow Controls on the dark theme */
+.react-flow__controls {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: #2a2a2a;
+  border: none;
+  border-bottom: 1px solid #444;
+  color: #ddd;
+  width: 28px;
+  height: 28px;
+  transition: background 120ms;
+}
+.react-flow__controls-button:hover {
+  background: #3a3a3a;
+  color: #fff;
+}
+.react-flow__controls-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}

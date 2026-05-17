@@ -216,14 +216,52 @@ export function QueryNodeComp({ data }: NodeProps) {
 
 export function ActionNodeComp({ data }: NodeProps) {
   const node = (data as NodeData).node as ActionNode;
+  const hasBody = node.inputs.length > 0 || node.response.length > 0;
+  if (!hasBody) {
+    return (
+      <DiamondSvg
+        name={node.name}
+        fill="#f8c8d0"
+        stroke="#c04060"
+        textColor="#5a1830"
+        comment={node.comment}
+      />
+    );
+  }
   return (
-    <DiamondSvg
-      name={node.name}
-      fill="#b8e8c0"
-      stroke="#3a9e55"
-      textColor="#1a5a30"
-      comment={node.comment}
-    />
+    <div style={styles.action}>
+      <Handle type="target" position={Position.Left} style={HANDLE_STYLE} />
+      <Handle type="source" position={Position.Right} style={HANDLE_STYLE} />
+      <div style={styles.actionTitle}>{node.name}</div>
+      {node.comment && (
+        <div style={styles.querySection}>
+          <div style={styles.nodeComment}>{node.comment}</div>
+          <div style={styles.commentDivider} />
+        </div>
+      )}
+      {node.inputs.length > 0 && (
+        <div style={styles.querySection}>
+          <div style={styles.actionSectionLabel}>inputs</div>
+          {node.inputs.map(f => (
+            <div key={f.name} style={styles.field}>
+              <span style={styles.fieldName}>{f.name}{f.optional ? '?' : ''}</span>
+              <span style={styles.fieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {node.response.length > 0 && (
+        <div style={styles.querySection}>
+          <div style={styles.actionSectionLabel}>response</div>
+          {node.response.map(f => (
+            <div key={f.name} style={styles.field}>
+              <span style={styles.fieldName}>{f.name}{f.optional ? '?' : ''}</span>
+              <span style={styles.fieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -427,6 +465,25 @@ const styles: Record<string, React.CSSProperties> = {
   },
   querySection: { padding: '4px 10px 6px' },
   sectionLabel: { fontSize: 10, color: '#1a5a30', textTransform: 'uppercase', marginBottom: 2 },
+
+  action: {
+    background: '#f8c8d0',
+    border: '1.5px solid #c04060',
+    borderRadius: 8,
+    minWidth: 150,
+    fontFamily: 'monospace',
+    fontSize: 12,
+    boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+    overflow: 'hidden',
+  },
+  actionTitle: {
+    background: '#c04060',
+    color: '#fff',
+    fontWeight: 700,
+    padding: '4px 10px',
+    fontSize: 13,
+  },
+  actionSectionLabel: { fontSize: 10, color: '#5a1830', textTransform: 'uppercase' as const, marginBottom: 2 },
 
   actor: {
     background: '#e8d5f5',

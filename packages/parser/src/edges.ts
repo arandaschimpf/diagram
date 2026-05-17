@@ -1,4 +1,4 @@
-import type { AST, DiagramNode, Edge, EntityNode, EventHandlerNode, ActionNode } from './types.js';
+import type { AST, DiagramNode, Edge, EntityNode, EventHandlerNode, ActionNode, ActorNode, QueryNode } from './types.js';
 import { isReference } from './parser.js';
 
 type NodeIndex = Map<string, string>; // qualifiedName → XYFlow leaf node id
@@ -17,8 +17,16 @@ function buildIndex(nodes: DiagramNode[], prefix: string[]): NodeIndex {
   return index;
 }
 
-function resolve(name: string, siblingMap: Map<string, string>, globalIndex: NodeIndex): string | undefined {
-  return siblingMap.get(name) ?? globalIndex.get(name);
+function resolve(name: string, prefix: string[], siblingMap: Map<string, string>, globalIndex: NodeIndex): string | undefined {
+  const sibling = siblingMap.get(name);
+  if (sibling) return sibling;
+  // Walk up the scope chain: try the reference under each enclosing
+  // scope, narrowest first, falling back to the global root.
+  for (let i = prefix.length; i >= 0; i--) {
+    const hit = globalIndex.get([...prefix.slice(0, i), name].join('::'));
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 function collectEdges(
@@ -45,7 +53,7 @@ function collectEdges(
     if (node.kind === 'Entity') {
       for (const field of (node as EntityNode).fields) {
         if (isReference(field.type)) {
-          const toId = resolve(field.type.base, siblingMap, globalIndex);
+          const toId = resolve(field.type.base, prefix, siblingMap, globalIndex);
           if (toId) {
             edges.push({ from: fromId, to: toId, label: field.name, dashed: field.type.nullable || field.optional });
           }
@@ -56,18 +64,37 @@ function collectEdges(
     if (node.kind === 'EventHandler') {
       const handler = node as EventHandlerNode;
       for (const eventName of handler.dispatch) {
-        const toId = resolve(eventName, siblingMap, globalIndex);
+        const toId = resolve(eventName, prefix, siblingMap, globalIndex);
         if (toId) edges.push({ from: fromId, to: toId, dashed: false });
       }
-      for (const target of handler.calls) {
-        const toId = resolve(target, siblingMap, globalIndex);
+      for (const call of handler.calls) {
+        const toId = resolve(call.target, prefix, siblingMap, globalIndex);
         if (toId) edges.push({ from: fromId, to: toId, dashed: false });
       }
     }
 
     if (node.kind === 'Action') {
-      for (const target of (node as ActionNode).calls) {
-        const toId = resolve(target, siblingMap, globalIndex);
+      const action = node as ActionNode;
+      for (const call of action.calls) {
+        const toId = resolve(call.target, prefix, siblingMap, globalIndex);
+        if (toId) edges.push({ from: fromId, to: toId, dashed: false });
+      }
+      for (const eventName of action.dispatch) {
+        const toId = resolve(eventName, prefix, siblingMap, globalIndex);
+        if (toId) edges.push({ from: fromId, to: toId, dashed: false });
+      }
+    }
+
+    if (node.kind === 'Query') {
+      for (const call of (node as QueryNode).calls) {
+        const toId = resolve(call.target, prefix, siblingMap, globalIndex);
+        if (toId) edges.push({ from: fromId, to: toId, dashed: false });
+      }
+    }
+
+    if (node.kind === 'Actor') {
+      for (const call of (node as ActorNode).calls) {
+        const toId = resolve(call.target, prefix, siblingMap, globalIndex);
         if (toId) edges.push({ from: fromId, to: toId, dashed: false });
       }
     }
