@@ -64,8 +64,15 @@ function nodeSize(n: Node): { width: number; height: number } {
 }
 
 function buildElkGraph(nodes: Node[], edges: Edge[]): ElkNode {
-  const services = nodes.filter(n => n.type === 'service');
-  const leaves = nodes.filter(n => n.type !== 'service');
+  const seenNodeIds = new Set<string>();
+  const uniqueNodes = nodes.filter(n => {
+    if (seenNodeIds.has(n.id)) return false;
+    seenNodeIds.add(n.id);
+    return true;
+  });
+
+  const services = uniqueNodes.filter(n => n.type === 'service');
+  const leaves = uniqueNodes.filter(n => n.type !== 'service');
 
   const elkById = new Map<string, ElkNode>();
 
@@ -113,7 +120,7 @@ function buildElkGraph(nodes: Node[], edges: Edge[]): ElkNode {
   }
 
   const rootChildren: ElkNode[] = [];
-  for (const n of nodes) {
+  for (const n of uniqueNodes) {
     if (!n.parentId) rootChildren.push(elkById.get(n.id)!);
   }
 

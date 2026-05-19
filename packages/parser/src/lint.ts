@@ -67,6 +67,22 @@ function lintNodes(
 ): void {
   const siblings = siblingsAt(nodes, prefix);
 
+  const seenNames = new Map<string, NodeKind>();
+  for (const node of nodes) {
+    if (node.kind === 'Service' || node.kind === 'Primitive') continue;
+    const prior = seenNames.get(node.name);
+    if (prior !== undefined) {
+      const qualified = [...prefix, node.name].join('::');
+      diagnostics.push({
+        severity: 'error',
+        message: `${node.kind} ${qualified}: duplicate name — already declared as ${prior} in the same scope`,
+        line: node.line,
+      });
+    } else {
+      seenNames.set(node.name, node.kind);
+    }
+  }
+
   for (const node of nodes) {
     if (node.kind === 'Service') {
       lintNodes(node.children, [...prefix, node.name], globalIndex, userPrimitives, diagnostics);
