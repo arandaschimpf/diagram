@@ -113,6 +113,27 @@ function serializeNode(node: DiagramNode, indent: string): string {
       }
       return `${indent}Action ${node.name} {\n${commentStr}${tagsStr}${parts.join('\n')}\n${indent}}`;
     }
+    case 'Primitive': {
+      return `${indent}Primitive ${node.name}`;
+    }
+    case 'StateMachine': {
+      const commentStr = serializeComment(node.comment, i2);
+      const tagsStr = serializeTags(node.tags, i2);
+      const states = node.states.map(s => {
+        const stateCommentStr = serializeComment(s.comment, i2);
+        const initial = s.initial ? '@initial ' : '';
+        if (s.transitions.length === 0) {
+          return `${stateCommentStr}${i2}${initial}${s.name} {}`;
+        }
+        const transitions = s.transitions.map(tr => {
+          const trComment = serializeComment(tr.comment, i2 + '  ');
+          return `${trComment}${i2}  ${tr.trigger} -> ${tr.target}`;
+        }).join('\n');
+        return `${stateCommentStr}${i2}${initial}${s.name} {\n${transitions}\n${i2}}`;
+      }).join('\n');
+      const body = states ? `${states}\n` : '';
+      return `${indent}StateMachine ${node.name} {\n${commentStr}${tagsStr}${body}${indent}}`;
+    }
     case 'Actor': {
       if (!node.comment && node.calls.length === 0 && node.tags.length === 0) return `${indent}Actor ${node.name}`;
       const commentStr = serializeComment(node.comment, i2);

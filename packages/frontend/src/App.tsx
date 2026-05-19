@@ -5,6 +5,8 @@ import { FileSidebar } from './components/FileSidebar';
 import { DiagramCanvas } from './components/DiagramCanvas';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { CommandPalette, nodesToSearchItems } from './components/CommandPalette';
+import { StateMachineModal } from './components/StateMachineModal';
+import type { StateMachineNode } from '@diagram/parser';
 import type { FocusTarget } from './components/DiagramCanvas';
 import { useFileSync } from './hooks/useFileSync';
 import { useDiagnostics } from './hooks/useDiagnostics';
@@ -192,6 +194,7 @@ export default function App() {
   const diagnostics = useDiagnostics(code);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [openStateMachine, setOpenStateMachine] = useState<StateMachineNode | null>(null);
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
   const searchItems = useMemo(() => nodesToSearchItems(nodes), [nodes]);
 
@@ -337,6 +340,7 @@ export default function App() {
                 onNodeRightClick={handleNodeRightClick}
                 onAddEdge={handleAddEdge}
                 onDeleteEdge={handleDeleteEdge}
+                onOpenStateMachine={setOpenStateMachine}
                 focusTarget={focusTarget}
               />
             </div>
@@ -348,6 +352,10 @@ export default function App() {
             items={searchItems}
             onClose={() => setPaletteOpen(false)}
             onSelect={handlePaletteSelect}
+          />
+          <StateMachineModal
+            machine={openStateMachine}
+            onClose={() => setOpenStateMachine(null)}
           />
         </div>
       ) : (

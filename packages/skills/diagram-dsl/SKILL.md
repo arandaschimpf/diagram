@@ -1,6 +1,6 @@
 ---
 name: diagram-dsl
-description: Teaches and assists with the service diagram DSL language. Use when the user asks how to write a diagram, what syntax to use, wants to add nodes or connections, or asks about Entity/Enum/Event/EventHandler/Query/Action/Actor/external/@either/@unique syntax.
+description: Teaches and assists with the service diagram DSL language. Use when the user asks how to write a diagram, what syntax to use, wants to add nodes or connections, or asks about Entity/Enum/Event/EventHandler/Query/Action/Actor/Primitive/StateMachine/external/@either/@unique/@initial syntax.
 ---
 
 You are an expert in the service diagram DSL used in this project. Your job is to teach the language, answer questions about it, and help the user write or fix DSL code.
@@ -96,7 +96,7 @@ Entity Order {
 | `name?: string` | optional field |
 | `name: Platform::Auth::User` | qualified cross-service reference |
 
-Primitive types: `string`, `number`, `boolean`, `Date`, `UUID`
+Primitive types: `string`, `number`, `boolean`, `Date`, `UUID` (plus anything declared via `Primitive` — see below)
 
 #### Entity constraints
 
@@ -246,6 +246,95 @@ Actor User {
 ```
 
 The Actor body is optional. When present it may contain a leading comment and/or a `calls: [...]` block. Actor `calls` entries must be prefixed with `Action` or `Query` (actors do not dispatch events). Each call creates a directed arrow to the referenced node.
+
+---
+
+### Primitive (not rendered)
+Declares an extra primitive type name. Use this for opaque or loosely-typed fields (`object`, `Json`, `Buffer`, …) where you don't want a node on the canvas and don't want the linter flagging the type as unknown.
+
+```
+Primitive object
+Primitive Json
+
+Entity Event {
+  id:       string
+  metadata: object | null   // no warning, no arrow
+  payload:  Json
+}
+```
+
+`Primitive` has no body and renders nothing on the diagram. Declarations are global — they can appear at any level (top-level or inside a `Service`) and are visible everywhere.
+
+---
+
+### StateMachine (slate compact card)
+Describes the state lifecycle of an entity: the set of valid states and the named transitions between them. Renders as a compact card on the canvas (state badges + transition count) with an expand button that opens a full state-graph modal.
+
+```
+StateMachine OrderStatus {
+  @initial QUOTED {
+    // user confirms order
+    CONFIRM -> PENDING_FUNDING
+  }
+  PENDING_FUNDING {
+    ALLOCATE_FUNDS -> PARTIALLY_FILLED
+    FULLY_FUNDED   -> FULFILLED
+    EXPIRE         -> EXPIRED
+    CANCEL         -> CANCELLED
+  }
+  PARTIALLY_FILLED {
+    FULLY_FUNDED -> FULFILLED
+    EXPIRE       -> EXPIRED
+    CANCEL       -> CANCELLED
+  }
+  FULFILLED {
+    START_PAYOUT -> PROCESSING_PAYOUT
+  }
+  PROCESSING_PAYOUT {
+    PAYOUT_SUCCEEDED -> SETTLED
+    PAYOUT_FAILED    -> PAYOUT_FAILED
+  }
+  PAYOUT_FAILED {
+    RETRY_PAYOUT -> PROCESSING_PAYOUT
+  }
+  SETTLED   {}
+  EXPIRED   {}
+  CANCELLED {}
+}
+```
+
+**Syntax:**
+- Exactly one state must be marked `@initial`. Entity creation is implicit — `@initial` is the state an entity enters when it's first created.
+- Each state's body lists transitions as `TRIGGER -> TARGET_STATE`. Triggers and states are bare identifiers.
+- Terminal states use an empty body: `SETTLED {}`.
+- The same trigger name may appear in multiple states (e.g. `EXPIRE`), but never twice within the same state (that would be non-deterministic).
+- Transitions target another state — a self-loop (`source -> source`) is an error.
+
+**Referencing from entities** — a StateMachine can be used as a field type in two forms:
+
+```
+Entity OrderStatusChange {
+  order_status_change_id: UUID
+  order_id:    UUID
+  from_status: OrderStatus              // enum of state names
+  to_status:   OrderStatus
+  trigger:     OrderStatus.Transition   // enum of unique trigger names
+}
+```
+
+- `OrderStatus` → an enum-like type whose values are the state names (`QUOTED | PENDING_FUNDING | ...`).
+- `OrderStatus.Transition` → an enum-like type whose values are the unique trigger names. Repeated trigger names across states collapse to a single variant.
+
+Multiple field references to the same StateMachine collapse to a single arrow on the canvas — `from_status`, `to_status`, and `trigger` together produce one edge from the entity to the StateMachine.
+
+StateMachine supports a leading `//` comment, `@deprecated` / `@experimental` tags, and can be nested inside `Service` blocks. Per-state and per-transition `//` comments are captured and shown in the drill-down's transition reference column.
+
+**Validation** — the linter enforces:
+- Transition target must be a declared state (error).
+- Exactly one state marked `@initial` (error).
+- No duplicate trigger within a single source state (error).
+- No self-loops (error).
+- States unreachable from `@initial` (warning).
 
 ---
 
@@ -494,6 +583,7 @@ It reports each problem with severity, message, and **line number**:
 - `calls` targets that don't resolve, or resolve to the wrong kind
 - `dispatch` entries missing the `Event` prefix (otherwise silently ignored)
 - `dispatch` targets that don't resolve, or resolve to something that isn't an `Event`
+- StateMachine: transition target is undeclared; zero or multiple `@initial` states; duplicate trigger in one source state; self-loops; states unreachable from `@initial`
 
 Lint warnings do not stop the diagram from rendering — they're advisory. Run them when adding nodes or chasing a "why isn't this arrow showing up?" mystery.
 

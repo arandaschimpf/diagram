@@ -9,18 +9,21 @@ export function registerDiagramLanguage(monaco: Monaco) {
   monaco.languages.register({ id: LANG_ID });
 
   monaco.languages.setMonarchTokensProvider(LANG_ID, {
-    keywords: ['Service', 'Entity', 'Enum', 'Event', 'EventHandler', 'Query', 'Action', 'Actor', 'external'],
+    keywords: ['Service', 'Entity', 'Enum', 'Event', 'EventHandler', 'Query', 'Action', 'Actor', 'Primitive', 'StateMachine', 'external'],
     typeKeywords: ['string', 'number', 'boolean', 'Date', 'UUID', 'null'],
     tokenizer: {
       root: [
         // Line comments
         [/\/\/.*$/, 'comment'],
 
-        // Constraint and tag annotations (@either, @unique, @deprecated, @experimental)
-        [/@(either|unique|deprecated|experimental)\b/, 'keyword.constraint'],
+        // Constraint and tag annotations (@either, @unique, @deprecated, @experimental, @initial)
+        [/@(either|unique|deprecated|experimental|initial)\b/, 'keyword.constraint'],
+
+        // Transition arrow in StateMachine bodies
+        [/->/, 'keyword.operator'],
 
         // Keywords
-        [/\b(Service|Entity|Enum|Event|EventHandler|Query|Action|Actor|external)\b/, 'keyword'],
+        [/\b(Service|Entity|Enum|Event|EventHandler|Query|Action|Actor|Primitive|StateMachine|external)\b/, 'keyword'],
 
         // Primitive / built-in types
         [/\b(string|number|boolean|Date|UUID|null)\b/, 'type'],
@@ -30,7 +33,7 @@ export function registerDiagramLanguage(monaco: Monaco) {
         [/\b[a-z_][A-Za-z0-9_]*\b/, 'identifier'],
 
         // Operators and punctuation
-        [/[|?:,\[\]{}()@]/, 'delimiter'],
+        [/[|?:,\[\]{}()@.]/, 'delimiter'],
       ],
     },
   });
@@ -77,7 +80,7 @@ export function registerDiagramLanguage(monaco: Monaco) {
       }
 
       // Default: go to definition of the type reference under cursor
-      const results = findAll(model, new RegExp(`\\b(Entity|Enum|EventHandler|Event|Query|Action|Actor|Service)\\s+${name}\\b`), true);
+      const results = findAll(model, new RegExp(`\\b(Entity|Enum|EventHandler|Event|Query|Action|Actor|Service|StateMachine)\\s+${name}\\b`), true);
       return results.length > 0 ? results[0] : null;
     },
   };
@@ -135,6 +138,7 @@ export function registerDiagramLanguage(monaco: Monaco) {
     rules: [
       { token: 'keyword',            foreground: 'C586C0', fontStyle: 'bold' },
       { token: 'keyword.constraint', foreground: 'C586C0', fontStyle: 'italic' },
+      { token: 'keyword.operator',   foreground: 'C586C0' },
       { token: 'type',            foreground: '4EC9B0' },
       { token: 'type.identifier', foreground: '4EC9B0' },
       { token: 'identifier',      foreground: '9CDCFE' },

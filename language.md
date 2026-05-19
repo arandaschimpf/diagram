@@ -14,6 +14,8 @@ A small language for describing service architectures. Write `.diagram` files �
 | `Query`        | green rectangle  | Read operation with inputs and response             |
 | `Action`       | green diamond    | Write/command operation with inputs                 |
 | `Actor`        | purple node      | External initiator (user, cron, webhook)            |
+| `Primitive`    | (not rendered)   | Declares an extra primitive type name               |
+| `StateMachine` | slate compact card | Entity lifecycle: states and named transitions    |
 
 ---
 
@@ -55,7 +57,7 @@ Entity Order {
 }
 ```
 
-**Primitive types:** `string`, `number`, `boolean`, `Date`, `UUID`
+**Primitive types:** `string`, `number`, `boolean`, `Date`, `UUID` (plus any declared via `Primitive` — see below)
 
 Cross-service references use `::` paths: `Platform::Auth::User`
 
@@ -223,6 +225,84 @@ Actor AdminDashboard {
 
 ---
 
+## Primitive
+
+Declares an extra primitive type name. Useful for opaque/loosely-typed fields (`object`, `Json`, `Buffer`) where you don't want a referenced node and don't want the linter to flag the type as unknown.
+
+```
+Primitive object
+Primitive Json
+
+Entity Event {
+  id:       string
+  metadata: object | null   // no warning, no arrow
+  payload:  Json
+}
+```
+
+`Primitive` declarations have no body, render nothing on the canvas, and are looked up globally regardless of where they are declared.
+
+---
+
+## StateMachine
+
+Describes the state lifecycle of an entity: the valid states and the named transitions between them. Renders as a compact card with state badges and a transition count; click the expand button to open a modal showing the full state graph and a transition-trigger reference column.
+
+```
+StateMachine OrderStatus {
+  @initial QUOTED {
+    CONFIRM -> PENDING_FUNDING
+  }
+  PENDING_FUNDING {
+    ALLOCATE_FUNDS -> PARTIALLY_FILLED
+    FULLY_FUNDED   -> FULFILLED
+    EXPIRE         -> EXPIRED
+    CANCEL         -> CANCELLED
+  }
+  FULFILLED {
+    START_PAYOUT -> PROCESSING_PAYOUT
+  }
+  PROCESSING_PAYOUT {
+    PAYOUT_SUCCEEDED -> SETTLED
+    PAYOUT_FAILED    -> PAYOUT_FAILED
+  }
+  PAYOUT_FAILED {
+    RETRY_PAYOUT -> PROCESSING_PAYOUT
+  }
+  SETTLED   {}
+  EXPIRED   {}
+  CANCELLED {}
+}
+```
+
+**Rules:**
+- Exactly one state must be marked `@initial`. Entity creation is implicit — `@initial` is the state an entity lands in when first created.
+- Each state's body declares transitions as `TRIGGER -> TARGET_STATE`.
+- Empty bodies (`SETTLED {}`) declare terminal states.
+- The same trigger name may appear in multiple states (e.g. `EXPIRE`), but must be unique within any single source state.
+- Self-loops (`A -> A`) are errors. To represent a retry, route through a separate state.
+
+**Referencing from entities** — a StateMachine can be used as a field type in two forms:
+
+```
+Entity OrderStatusChange {
+  order_status_change_id: UUID
+  order_id:    UUID
+  from_status: OrderStatus              // enum of state names
+  to_status:   OrderStatus
+  trigger:     OrderStatus.Transition   // enum of unique trigger names
+}
+```
+
+- Bare `OrderStatus` → enum-like type of state names.
+- `OrderStatus.Transition` → enum-like type of the unique trigger names across the entire machine. Repeated trigger names collapse to one variant.
+
+Multiple field references to the same StateMachine collapse to a single arrow on the canvas.
+
+StateMachines may carry a top-of-body `//` comment and `@deprecated` / `@experimental` tags. States and transitions may carry leading `//` comments — these appear in the drill-down's trigger reference column.
+
+---
+
 ## Lifecycle tags
 
 Mark any node with body-level lifecycle metadata. Two tags are supported:
@@ -305,6 +385,7 @@ Each diagnostic includes severity, message, and line number. Checks include:
 - `@either` / `@unique` constraints referencing fields that don't exist
 - `calls` / `dispatch` entries missing their required prefix
 - `calls` / `dispatch` targets that don't resolve, or resolve to the wrong kind
+- StateMachine: undeclared transition target; missing/duplicate `@initial`; duplicate trigger in one state; self-loops; unreachable states
 
 Lint warnings are advisory — they don't stop the file from rendering.
 
@@ -315,6 +396,8 @@ Lint warnings are advisory — they don't stop the file from rendering.
 Arrows require no manual wiring — they come from the data:
 
 - **Entity field** whose type is another node → arrow (dashed if `| null` or `?`)
+  - Multiple references between the same two nodes collapse to a single edge.
+  - `StateMachine.Transition` resolves to the StateMachine for edge purposes.
 - **EventHandler `calls`** → arrow to each `Action`/`Query` listed
 - **EventHandler `dispatch`** → arrow to each listed event
 - **Action `calls`** → arrow to each `Action`/`Query` listed

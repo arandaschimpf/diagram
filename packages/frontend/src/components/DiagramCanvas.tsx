@@ -12,6 +12,7 @@ import { toPng } from 'html-to-image';
 import {
   EntityNodeComp, EnumNodeComp, EventNodeComp, EventHandlerNodeComp,
   QueryNodeComp, ActionNodeComp, ActorNodeComp, ServiceNodeComp,
+  StateMachineNodeComp,
 } from './nodes';
 import type { Layout } from '../dslToFlow';
 import { DiagramCallbackContext } from '../diagramContext';
@@ -26,6 +27,7 @@ const nodeTypes = {
   action: ActionNodeComp,
   actor: ActorNodeComp,
   service: ServiceNodeComp,
+  statemachine: StateMachineNodeComp,
 };
 
 const EXPORT_ZOOM = 1.5;
@@ -42,6 +44,7 @@ interface Props {
   onNodeRightClick?: (nodeId: string, nodeType: string) => void;
   onAddEdge?: (sourceId: string, targetId: string, targetKind: TargetKind) => void;
   onDeleteEdge?: (sourceId: string, targetId: string, targetKind: TargetKind) => void;
+  onOpenStateMachine?: (node: import('@diagram/parser').StateMachineNode) => void;
   focusTarget?: FocusTarget | null;
 }
 
@@ -212,7 +215,7 @@ function SavePngButton({ filename }: { filename: string }) {
   );
 }
 
-export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, currentLayout, onLayoutChange, onNodeRightClick, onAddEdge, onDeleteEdge, focusTarget }: Props) {
+export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, currentLayout, onLayoutChange, onNodeRightClick, onAddEdge, onDeleteEdge, onOpenStateMachine, focusTarget }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState(propNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(propEdges);
   const [animating, setAnimating] = useState(false);
@@ -272,7 +275,7 @@ export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, cu
   }, [setNodes, onLayoutChange]);
 
   return (
-    <DiagramCallbackContext.Provider value={{ onLayoutChange }}>
+    <DiagramCallbackContext.Provider value={{ onLayoutChange, onOpenStateMachine }}>
       <div style={{ flex: 1, height: '100%' }} className={animating ? 'diagram-animating' : undefined}>
         <ReactFlow
           nodes={nodes}

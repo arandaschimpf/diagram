@@ -1,6 +1,7 @@
 import type {
   AST, ServiceNode, DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode,
-  QueryNode, ActionNode, ActorNode, Field, FieldType, Constraint, Call, Dispatch, Tag, Diagnostic,
+  QueryNode, ActionNode, ActorNode, PrimitiveNode, StateMachineNode, State, StateTransition,
+  Field, FieldType, Constraint, Call, Dispatch, Tag, Diagnostic,
 } from './types.js';
 
 const KNOWN_TAGS: ReadonlySet<Tag> = new Set<Tag>(['deprecated', 'experimental']);
@@ -37,12 +38,13 @@ function tokenize(src: string): Token[] {
       i += 2;
       continue;
     }
-    if ('{}[]:|?@,'.includes(src[i])) {
+    if ('{}[]:|?@,->'.includes(src[i])) {
       tokens.push({ kind: 'symbol', value: src[i], line });
       i++;
       continue;
     }
     // Identifiers — allow embedded '::' for qualified type references (e.g. Platform::Order)
+    // and '.' for state-machine sub-references (e.g. OrderStatus.Transition)
     if (/[a-zA-Z_]/.test(src[i])) {
       const startLine = line;
       let j = i;
@@ -54,6 +56,11 @@ function tokenize(src: string): Token[] {
           j + 2 < src.length && /[a-zA-Z_]/.test(src[j + 2])
         ) {
           j += 2;
+        } else if (
+          src[j] === '.' &&
+          j + 1 < src.length && /[a-zA-Z_]/.test(src[j + 1])
+        ) {
+          j += 1;
         } else {
           break;
         }
@@ -173,7 +180,9 @@ class Parser {
       case 'Query': return this.parseQuery();
       case 'Action': return this.parseAction();
       case 'Actor': return this.parseActor();
-      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Enum, Event, EventHandler, Query, Action, Actor, external)`);
+      case 'Primitive': return this.parsePrimitive();
+      case 'StateMachine': return this.parseStateMachine();
+      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Enum, Event, EventHandler, Query, Action, Actor, Primitive, StateMachine, external)`);
     }
   }
 
@@ -399,6 +408,74 @@ class Parser {
       this.expectSymbol('}');
     }
     return { kind: 'Actor', name: name.value, calls, tags, comment, line: kw.line };
+  }
+
+  private parsePrimitive(): PrimitiveNode {
+    const kw = this.expectIdent('Primitive');
+    const name = this.expectIdent();
+    return { kind: 'Primitive', name: name.value, line: kw.line };
+  }
+
+  private parseStateMachine(): StateMachineNode {
+    const kw = this.expectIdent('StateMachine');
+    const name = this.expectIdent();
+    this.expectSymbol('{');
+    const comment = this.consumeLeadingComment();
+    const tags: Tag[] = [];
+    while (this.tryParseTag(tags)) { /* consume leading tags */ }
+    const states: State[] = [];
+    while (!this.peekIs('symbol', '}')) {
+      if (this.peek().kind === 'eof') break;
+      if (this.peek().kind === 'comment') { this.consume(); continue; }
+      states.push(this.parseState());
+    }
+    this.expectSymbol('}');
+    return { kind: 'StateMachine', name: name.value, states, tags, comment, line: kw.line };
+  }
+
+  private parseState(): State {
+    const stateComment = this.consumeLeadingComment();
+    let initial = false;
+    if (this.peekIs('symbol', '@')) {
+      const saved = this.pos;
+      this.consume(); // '@'
+      const t = this.peek();
+      if (t.kind === 'ident' && t.value === 'initial') {
+        this.consume();
+        initial = true;
+      } else {
+        this.pos = saved;
+      }
+    }
+    const nameTok = this.expectIdent();
+    this.expectSymbol('{');
+    const transitions: StateTransition[] = [];
+    while (!this.peekIs('symbol', '}')) {
+      if (this.peek().kind === 'eof') break;
+      const transComment = this.consumeLeadingComment();
+      if (this.peekIs('symbol', '}')) {
+        // trailing comment with no transition after it; ignore
+        break;
+      }
+      const trig = this.expectIdent();
+      this.expectSymbol('-');
+      this.expectSymbol('>');
+      const tgt = this.expectIdent();
+      transitions.push({
+        trigger: trig.value,
+        target: tgt.value,
+        comment: transComment,
+        line: trig.line,
+      });
+    }
+    this.expectSymbol('}');
+    return {
+      name: nameTok.value,
+      initial,
+      transitions,
+      comment: stateComment,
+      line: nameTok.line,
+    };
   }
 
   /**

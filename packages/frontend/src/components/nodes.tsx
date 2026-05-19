@@ -1,6 +1,6 @@
 import { useCallback, useContext } from 'react';
 import { Handle, Position, NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
-import type { DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode, QueryNode, ActionNode, ActorNode } from '@diagram/parser';
+import type { DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode, QueryNode, ActionNode, ActorNode, StateMachineNode } from '@diagram/parser';
 import { DiagramCallbackContext } from '../diagramContext';
 import type { Layout } from '../dslToFlow';
 
@@ -349,6 +349,67 @@ export function ServiceNodeComp({ id, data, selected }: NodeProps) {
   );
 }
 
+// ── StateMachine (slate compact card) ────────────────────────────────────────
+
+export function StateMachineNodeComp({ data }: NodeProps) {
+  const node = (data as NodeData).node as StateMachineNode;
+  const { onOpenStateMachine } = useContext(DiagramCallbackContext);
+  const transitionCount = node.states.reduce((n, s) => n + s.transitions.length, 0);
+  const deprecated = node.tags.includes('deprecated');
+  const experimental = node.tags.includes('experimental');
+  return (
+    <div style={{ ...styles.stateMachine, ...(deprecated ? styles.deprecated : null) }}>
+      <Handle type="target" position={Position.Left} style={HANDLE_STYLE} />
+      <Handle type="source" position={Position.Right} style={HANDLE_STYLE} />
+      <div style={styles.stateMachineTitle}>
+        <span>
+          {node.name}
+          {experimental && <span style={styles.tagChip}>experimental</span>}
+          {deprecated && <span style={styles.tagChip}>deprecated</span>}
+        </span>
+        <button
+          type="button"
+          style={styles.expandBtn}
+          onClick={e => {
+            e.stopPropagation();
+            onOpenStateMachine?.(node);
+          }}
+          title="Show state machine details"
+        >
+          ⤢
+        </button>
+      </div>
+      <div style={styles.stateMachineBody}>
+        {node.comment && (
+          <>
+            <div style={styles.nodeComment}>{node.comment}</div>
+            <div style={styles.commentDivider} />
+          </>
+        )}
+        <div style={styles.stateBadges}>
+          {node.states.map((s, i) => (
+            <span key={s.name} style={styles.stateBadgeRow}>
+              <span
+                style={{
+                  ...styles.stateBadge,
+                  ...(s.initial ? styles.stateBadgeInitial : null),
+                  ...(s.transitions.length === 0 ? styles.stateBadgeTerminal : null),
+                }}
+              >
+                {s.name}
+              </span>
+              {i < node.states.length - 1 && <span style={styles.stateBadgeArrow}>→</span>}
+            </span>
+          ))}
+        </div>
+        <div style={styles.stateMachineFooter}>
+          {node.states.length} state{node.states.length === 1 ? '' : 's'} · {transitionCount} transition{transitionCount === 1 ? '' : 's'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles: Record<string, React.CSSProperties> = {
@@ -580,5 +641,99 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: 0,
     marginTop: 2,
     whiteSpace: 'pre-wrap',
+  },
+
+  stateMachine: {
+    background: '#1e2a38',
+    border: '1.5px solid #3d6f9d',
+    borderRadius: 6,
+    width: 'max-content',
+    maxWidth: 460,
+    fontFamily: 'monospace',
+    fontSize: 12,
+    color: '#e6edf3',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+  },
+  deprecated: { opacity: 0.6 },
+  stateMachineTitle: {
+    background: '#274d6e',
+    color: '#fff',
+    fontWeight: 700,
+    padding: '4px 10px',
+    borderRadius: '4px 4px 0 0',
+    fontSize: 13,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tagChip: {
+    fontSize: 10,
+    fontWeight: 600,
+    background: 'rgba(0,0,0,0.3)',
+    border: '1px solid rgba(255,255,255,0.25)',
+    color: '#e6edf3',
+    padding: '0 4px',
+    borderRadius: 3,
+    marginLeft: 6,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  expandBtn: {
+    background: 'transparent',
+    color: '#e6edf3',
+    border: '1px solid rgba(255,255,255,0.35)',
+    borderRadius: 3,
+    fontSize: 12,
+    padding: '0 6px',
+    cursor: 'pointer',
+    lineHeight: 1.6,
+  },
+  stateMachineBody: {
+    padding: '6px 10px 8px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+  },
+  stateBadges: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    rowGap: 4,
+    alignItems: 'center',
+  },
+  stateBadgeRow: {
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  stateBadge: {
+    background: '#1f3a55',
+    border: '1px solid #3d6f9d',
+    color: '#cfe2f3',
+    fontSize: 11,
+    fontWeight: 600,
+    padding: '2px 8px',
+    borderRadius: 3,
+    whiteSpace: 'nowrap',
+  },
+  stateBadgeInitial: {
+    background: '#274d6e',
+    borderColor: '#5aa0d4',
+    color: '#fff',
+  },
+  stateBadgeTerminal: {
+    background: '#2a2a2a',
+    borderColor: '#7a7a7a',
+    color: '#cfcfcf',
+  },
+  stateBadgeArrow: {
+    color: '#5aa0d4',
+    margin: '0 4px',
+    fontSize: 12,
+  },
+  stateMachineFooter: {
+    fontSize: 10,
+    color: '#8b949e',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 };

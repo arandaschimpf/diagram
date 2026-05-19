@@ -12,21 +12,34 @@ function buildIndex(nodes: DiagramNode[], prefix: string[], index: Map<string, I
   for (const node of nodes) {
     if (node.kind === 'Service') {
       buildIndex(node.children, [...prefix, node.name], index);
-    } else {
+    } else if (node.kind !== 'Primitive') {
       const qualified = [...prefix, node.name].join('::');
       index.set(qualified, { qualified, kind: node.kind });
     }
   }
 }
 
+function collectPrimitives(nodes: DiagramNode[], out: Set<string>): void {
+  for (const node of nodes) {
+    if (node.kind === 'Service') collectPrimitives(node.children, out);
+    else if (node.kind === 'Primitive') out.add(node.name);
+  }
+}
+
 function siblingsAt(nodes: DiagramNode[], prefix: string[]): Map<string, IndexEntry> {
   const siblings = new Map<string, IndexEntry>();
   for (const node of nodes) {
-    if (node.kind === 'Service') continue;
+    if (node.kind === 'Service' || node.kind === 'Primitive') continue;
     const qualified = [...prefix, node.name].join('::');
     siblings.set(node.name, { qualified, kind: node.kind });
   }
   return siblings;
+}
+
+function splitDotted(name: string): { base: string; suffix?: string } {
+  const dot = name.indexOf('.');
+  if (dot < 0) return { base: name };
+  return { base: name.slice(0, dot), suffix: name.slice(dot + 1) };
 }
 
 function resolve(
@@ -35,10 +48,11 @@ function resolve(
   siblings: Map<string, IndexEntry>,
   globalIndex: Map<string, IndexEntry>,
 ): IndexEntry | undefined {
-  const sibling = siblings.get(name);
+  const { base } = splitDotted(name);
+  const sibling = siblings.get(base);
   if (sibling) return sibling;
   for (let i = prefix.length; i >= 0; i--) {
-    const hit = globalIndex.get([...prefix.slice(0, i), name].join('::'));
+    const hit = globalIndex.get([...prefix.slice(0, i), base].join('::'));
     if (hit) return hit;
   }
   return undefined;
@@ -48,15 +62,17 @@ function lintNodes(
   nodes: DiagramNode[],
   prefix: string[],
   globalIndex: Map<string, IndexEntry>,
+  userPrimitives: Set<string>,
   diagnostics: Diagnostic[],
 ): void {
   const siblings = siblingsAt(nodes, prefix);
 
   for (const node of nodes) {
     if (node.kind === 'Service') {
-      lintNodes(node.children, [...prefix, node.name], globalIndex, diagnostics);
+      lintNodes(node.children, [...prefix, node.name], globalIndex, userPrimitives, diagnostics);
       continue;
     }
+    if (node.kind === 'Primitive') continue;
 
     const here = `${node.kind} ${[...prefix, node.name].join('::')}`;
 
@@ -64,6 +80,9 @@ function lintNodes(
       const fieldNames = new Set(node.fields.map(f => f.name));
       for (const field of node.fields) {
         if (!isReference(field.type)) continue;
+        if (userPrimitives.has(field.type.base)) continue;
+        const { base, suffix } = splitDotted(field.type.base);
+        if (userPrimitives.has(base)) continue;
         const hit = resolve(field.type.base, prefix, siblings, globalIndex);
         if (!hit) {
           diagnostics.push({
@@ -71,6 +90,20 @@ function lintNodes(
             message: `${here}: field '${field.name}' references unknown type '${field.type.base}'`,
             line: field.line,
           });
+        } else if (suffix !== undefined) {
+          if (hit.kind !== 'StateMachine') {
+            diagnostics.push({
+              severity: 'error',
+              message: `${here}: field '${field.name}' uses '.${suffix}' on type '${base}' which is a ${hit.kind}, not a StateMachine`,
+              line: field.line,
+            });
+          } else if (suffix !== 'Transition') {
+            diagnostics.push({
+              severity: 'error',
+              message: `${here}: field '${field.name}' has unknown sub-reference '.${suffix}' on StateMachine '${base}' (only '.Transition' is supported)`,
+              line: field.line,
+            });
+          }
         }
       }
       for (const c of node.constraints) {
@@ -123,6 +156,78 @@ function lintNodes(
         }
       }
     }
+
+    if (node.kind === 'StateMachine') {
+      const stateNames = new Set(node.states.map(s => s.name));
+      const initialCount = node.states.filter(s => s.initial).length;
+      if (initialCount === 0) {
+        diagnostics.push({
+          severity: 'error',
+          message: `${here}: requires exactly one state marked '@initial' (found none)`,
+          line: node.line,
+        });
+      } else if (initialCount > 1) {
+        diagnostics.push({
+          severity: 'error',
+          message: `${here}: requires exactly one state marked '@initial' (found ${initialCount})`,
+          line: node.line,
+        });
+      }
+      for (const state of node.states) {
+        const seenTriggers = new Set<string>();
+        for (const tr of state.transitions) {
+          if (!stateNames.has(tr.target)) {
+            diagnostics.push({
+              severity: 'error',
+              message: `${here}: transition '${tr.trigger} -> ${tr.target}' in state '${state.name}' targets undeclared state '${tr.target}'`,
+              line: tr.line,
+            });
+          }
+          if (tr.target === state.name) {
+            diagnostics.push({
+              severity: 'error',
+              message: `${here}: self-loop in state '${state.name}' (trigger '${tr.trigger}' targets the same state)`,
+              line: tr.line,
+            });
+          }
+          if (seenTriggers.has(tr.trigger)) {
+            diagnostics.push({
+              severity: 'error',
+              message: `${here}: trigger '${tr.trigger}' appears more than once in state '${state.name}' (non-deterministic)`,
+              line: tr.line,
+            });
+          }
+          seenTriggers.add(tr.trigger);
+        }
+      }
+      // Unreachable-state warning via BFS from the initial state.
+      const initial = node.states.find(s => s.initial);
+      if (initial) {
+        const reachable = new Set<string>([initial.name]);
+        const queue: string[] = [initial.name];
+        const byName = new Map(node.states.map(s => [s.name, s] as const));
+        while (queue.length > 0) {
+          const cur = queue.shift()!;
+          const s = byName.get(cur);
+          if (!s) continue;
+          for (const tr of s.transitions) {
+            if (!reachable.has(tr.target) && byName.has(tr.target)) {
+              reachable.add(tr.target);
+              queue.push(tr.target);
+            }
+          }
+        }
+        for (const s of node.states) {
+          if (!reachable.has(s.name)) {
+            diagnostics.push({
+              severity: 'warning',
+              message: `${here}: state '${s.name}' is unreachable from '@initial ${initial.name}'`,
+              line: s.line,
+            });
+          }
+        }
+      }
+    }
   }
 }
 
@@ -130,7 +235,9 @@ export function lint(ast: AST): Diagnostic[] {
   const diagnostics: Diagnostic[] = [...(ast.warnings ?? [])];
   const globalIndex = new Map<string, IndexEntry>();
   buildIndex(ast.nodes, [], globalIndex);
-  lintNodes(ast.nodes, [], globalIndex, diagnostics);
+  const userPrimitives = new Set<string>();
+  collectPrimitives(ast.nodes, userPrimitives);
+  lintNodes(ast.nodes, [], globalIndex, userPrimitives, diagnostics);
   diagnostics.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
   return diagnostics;
 }

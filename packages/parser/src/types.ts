@@ -101,6 +101,36 @@ export type ActorNode = {
   line?: number;
 };
 
+export type PrimitiveNode = {
+  kind: 'Primitive';
+  name: string;
+  line?: number;
+};
+
+export type StateTransition = {
+  trigger: string;
+  target: string;
+  comment?: string;
+  line?: number;
+};
+
+export type State = {
+  name: string;
+  initial: boolean;
+  transitions: StateTransition[];
+  comment?: string;
+  line?: number;
+};
+
+export type StateMachineNode = {
+  kind: 'StateMachine';
+  name: string;
+  states: State[];
+  tags: Tag[];
+  comment?: string;
+  line?: number;
+};
+
 export type ServiceNode = {
   kind: 'Service';
   name: string;
@@ -119,7 +149,9 @@ export type DiagramNode =
   | QueryNode
   | ActionNode
   | ActorNode
-  | ServiceNode;
+  | PrimitiveNode
+  | ServiceNode
+  | StateMachineNode;
 
 export type Diagnostic = {
   severity: 'error' | 'warning';
