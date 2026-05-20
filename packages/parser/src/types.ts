@@ -135,6 +135,8 @@ export type ServiceNode = {
   kind: 'Service';
   name: string;
   external: boolean;
+  isInterface: boolean;
+  implements?: string;
   children: DiagramNode[];
   tags: Tag[];
   comment?: string;
@@ -162,6 +164,8 @@ export type Diagnostic = {
 export type AST = {
   nodes: DiagramNode[];
   warnings?: Diagnostic[];
+  /** Set by resolveInheritance to short-circuit redundant passes. */
+  inheritanceResolved?: boolean;
 };
 
 export type Edge = {

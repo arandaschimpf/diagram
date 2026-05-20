@@ -1,4 +1,4 @@
-import { parse, inferEdges } from '@diagram/parser';
+import { parse, inferEdges, resolveInheritance } from '@diagram/parser';
 import type { AST, DiagramNode } from '@diagram/parser';
 import { MarkerType } from '@xyflow/react';
 import type { Node, Edge } from '@xyflow/react';
@@ -32,7 +32,13 @@ function processNodes(
       id: serviceId,
       type: 'service',
       position: { x: entry.x, y: entry.y },
-      data: { name: node.name, external: node.external, comment: node.comment },
+      data: {
+        name: node.name,
+        external: node.external,
+        isInterface: node.isInterface,
+        implements: node.implements,
+        comment: node.comment,
+      },
       ...(parentServiceId ? { parentId: parentServiceId, extent: 'parent' as const } : {}),
       style: {
         width: entry.width ?? 900,
@@ -67,12 +73,14 @@ export function dslToFlow(src: string, layout: Layout): { nodes: Node[]; edges: 
     return { nodes: [], edges: [], ast: null };
   }
 
+  const inheritedAst = resolveInheritance(ast);
+
   const xyNodes: Node[] = [];
   const counter = { value: 0 };
-  processNodes(ast.nodes, [], undefined, layout, counter, xyNodes);
+  processNodes(inheritedAst.nodes, [], undefined, layout, counter, xyNodes);
 
   const edges: Edge[] = [];
-  const inferred = inferEdges(ast);
+  const inferred = inferEdges(inheritedAst);
   for (const e of inferred) {
     const fromNode = xyNodes.find(n => n.id === e.from && n.type !== 'service');
     const toNode = xyNodes.find(n => n.id === e.to && n.type !== 'service');

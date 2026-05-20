@@ -40,6 +40,26 @@ external Service Stripe {
 }
 ```
 
+### Interfaces & Implementations
+
+Declare an interface service using the `interface` keyword:
+
+```
+interface Service AbstractWalletService {
+  Action Transfer { ... }
+}
+```
+
+Implement an interface service using the `implements` keyword:
+
+```
+Service Fordefi implements AbstractWalletService {
+  Action Transfer { ... }
+}
+```
+
+The implementing service inherits all children of the interface; any child re-declared by name in the implementer overrides the inherited one. The linter warns if the implemented target is unknown or is not declared as `interface Service`.
+
 ---
 
 ## Entity

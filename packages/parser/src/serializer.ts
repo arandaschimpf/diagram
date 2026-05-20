@@ -26,11 +26,13 @@ function serializeNode(node: DiagramNode, indent: string): string {
   const i2 = indent + '  ';
   switch (node.kind) {
     case 'Service': {
+      const decl = node.isInterface ? 'interface Service' : 'Service';
+      const impl = node.implements ? ` implements ${node.implements}` : '';
       const prefix = node.external ? `${indent}external ` : `${indent}`;
       const commentStr = serializeComment(node.comment, i2);
       const tagsStr = serializeTags(node.tags, i2);
       const children = node.children.map(n => serializeNode(n, i2)).join('\n\n');
-      return `${prefix}Service ${node.name} {\n${commentStr}${tagsStr}${children}\n${indent}}`;
+      return `${prefix}${decl} ${node.name}${impl} {\n${commentStr}${tagsStr}${children}\n${indent}}`;
     }
     case 'Entity': {
       const commentStr = serializeComment(node.comment, i2);

@@ -1,16 +1,20 @@
 import type { AST, DiagramNode, Diagnostic } from './types.js';
 import { isReference } from './parser.js';
+import { resolveInheritance } from './inheritance.js';
 
 type NodeKind = DiagramNode['kind'];
 
 type IndexEntry = {
   qualified: string;
   kind: NodeKind;
+  isInterface?: boolean;
 };
 
 function buildIndex(nodes: DiagramNode[], prefix: string[], index: Map<string, IndexEntry>): void {
   for (const node of nodes) {
     if (node.kind === 'Service') {
+      const qualified = [...prefix, node.name].join('::');
+      index.set(qualified, { qualified, kind: node.kind, isInterface: node.isInterface });
       buildIndex(node.children, [...prefix, node.name], index);
     } else if (node.kind !== 'Primitive') {
       const qualified = [...prefix, node.name].join('::');
@@ -85,6 +89,29 @@ function lintNodes(
 
   for (const node of nodes) {
     if (node.kind === 'Service') {
+      const here = `Service ${[...prefix, node.name].join('::')}`;
+      if (node.implements) {
+        const hit = resolve(node.implements, prefix, siblings, globalIndex);
+        if (!hit) {
+          diagnostics.push({
+            severity: 'warning',
+            message: `${here}: implements unknown service '${node.implements}'`,
+            line: node.line,
+          });
+        } else if (hit.kind !== 'Service') {
+          diagnostics.push({
+            severity: 'error',
+            message: `${here}: implements '${node.implements}' which is a ${hit.kind}, not a Service`,
+            line: node.line,
+          });
+        } else if (!hit.isInterface) {
+          diagnostics.push({
+            severity: 'warning',
+            message: `${here}: implements '${node.implements}' which is not defined as an interface Service`,
+            line: node.line,
+          });
+        }
+      }
       lintNodes(node.children, [...prefix, node.name], globalIndex, userPrimitives, diagnostics);
       continue;
     }
@@ -248,12 +275,13 @@ function lintNodes(
 }
 
 export function lint(ast: AST): Diagnostic[] {
-  const diagnostics: Diagnostic[] = [...(ast.warnings ?? [])];
+  const inheritedAst = resolveInheritance(ast);
+  const diagnostics: Diagnostic[] = [...(inheritedAst.warnings ?? [])];
   const globalIndex = new Map<string, IndexEntry>();
-  buildIndex(ast.nodes, [], globalIndex);
+  buildIndex(inheritedAst.nodes, [], globalIndex);
   const userPrimitives = new Set<string>();
-  collectPrimitives(ast.nodes, userPrimitives);
-  lintNodes(ast.nodes, [], globalIndex, userPrimitives, diagnostics);
+  collectPrimitives(inheritedAst.nodes, userPrimitives);
+  lintNodes(inheritedAst.nodes, [], globalIndex, userPrimitives, diagnostics);
   diagnostics.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
   return diagnostics;
 }

@@ -145,10 +145,15 @@ class Parser {
     return { nodes, warnings: this.warnings.length > 0 ? this.warnings : undefined };
   }
 
-  private parseService(external = false, declLine?: number): ServiceNode {
+  private parseService(external = false, declLine?: number, isInterface = false): ServiceNode {
     const kw = this.expectIdent('Service');
     const line = declLine ?? kw.line;
     const name = this.expectIdent();
+    let implementsService: string | undefined;
+    if (this.peekIs('ident', 'implements')) {
+      this.consume();
+      implementsService = this.expectIdent().value;
+    }
     this.expectSymbol('{');
     const comment = this.consumeLeadingComment();
     const children: DiagramNode[] = [];
@@ -161,7 +166,17 @@ class Parser {
       children.push(this.parseNode());
     }
     this.expectSymbol('}');
-    return { kind: 'Service', name: name.value, external, children, tags, comment, line };
+    return {
+      kind: 'Service',
+      name: name.value,
+      external,
+      isInterface,
+      implements: implementsService,
+      children,
+      tags,
+      comment,
+      line,
+    };
   }
 
   private parseNode(): DiagramNode {
@@ -170,7 +185,16 @@ class Parser {
     switch (t.value) {
       case 'external': {
         const ext = this.consume();
-        return this.parseService(true, ext.line);
+        const next = this.peek();
+        if (next.kind === 'ident' && next.value === 'interface') {
+          this.consume();
+          return this.parseService(true, ext.line, true);
+        }
+        return this.parseService(true, ext.line, false);
+      }
+      case 'interface': {
+        const isInterfaceTok = this.consume();
+        return this.parseService(false, isInterfaceTok.line, true);
       }
       case 'Service': return this.parseService(false);
       case 'Entity': return this.parseEntity();
@@ -182,7 +206,7 @@ class Parser {
       case 'Actor': return this.parseActor();
       case 'Primitive': return this.parsePrimitive();
       case 'StateMachine': return this.parseStateMachine();
-      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Enum, Event, EventHandler, Query, Action, Actor, Primitive, StateMachine, external)`);
+      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Enum, Event, EventHandler, Query, Action, Actor, Primitive, StateMachine, external, interface)`);
     }
   }
 

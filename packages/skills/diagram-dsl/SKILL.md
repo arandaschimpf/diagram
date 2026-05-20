@@ -33,6 +33,23 @@ external Service Stripe {
 }
 ```
 
+**Interfaces & Implementations** — define service contracts and implementations.
+Use the `interface` keyword to declare an interface service:
+```
+interface Service AbstractWalletService {
+  Action Transfer { ... }
+}
+```
+
+Use `implements` to declare a concrete service that implements an interface:
+```
+Service Fordefi implements AbstractWalletService {
+  Action Transfer { ... }
+}
+```
+
+The implementer inherits every child from the interface. Re-declaring a child by name in the implementer overrides the inherited copy; otherwise the interface's version is used as-is.
+
 **Nesting** — a service can contain both child services and direct nodes at the same level:
 
 ```

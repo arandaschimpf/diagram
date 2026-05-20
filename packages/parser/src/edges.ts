@@ -1,5 +1,6 @@
 import type { AST, DiagramNode, Edge, EntityNode, EventHandlerNode, ActionNode, ActorNode, QueryNode } from './types.js';
 import { isReference } from './parser.js';
+import { resolveInheritance } from './inheritance.js';
 
 type NodeIndex = Map<string, string>; // qualifiedName → XYFlow leaf node id
 
@@ -115,11 +116,12 @@ function collectEdges(
 }
 
 export function inferEdges(ast: AST): Edge[] {
+  const inheritedAst = resolveInheritance(ast);
   const raw: Edge[] = [];
-  const globalIndex = buildIndex(ast.nodes, []);
+  const globalIndex = buildIndex(inheritedAst.nodes, []);
   const userPrimitives = new Set<string>();
-  collectPrimitives(ast.nodes, userPrimitives);
-  collectEdges(ast.nodes, [], globalIndex, userPrimitives, raw);
+  collectPrimitives(inheritedAst.nodes, userPrimitives);
+  collectEdges(inheritedAst.nodes, [], globalIndex, userPrimitives, raw);
   // Collapse multiple references between the same (from, to) into one edge.
   // Label is kept only if all contributing edges share it. Dashed only if
   // every contributing edge is dashed.

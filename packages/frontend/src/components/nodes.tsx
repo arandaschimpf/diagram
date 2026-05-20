@@ -53,7 +53,7 @@ function DiamondSvg({
         </svg>
       </div>
       {comment && (
-        <div style={{ fontFamily: 'monospace', fontSize: 11, fontStyle: 'italic', color: textColor, textAlign: 'center', paddingTop: 3, whiteSpace: 'pre-wrap' }}>
+        <div style={{ fontFamily: 'monospace', fontSize: 11, fontStyle: 'italic', color: textColor, textAlign: 'center', paddingTop: 3, whiteSpace: 'pre-wrap', maxWidth: w, overflowWrap: 'break-word', wordBreak: 'break-word' }}>
           {comment}
         </div>
       )}
@@ -307,7 +307,13 @@ export function ActorNodeComp({ data }: NodeProps) {
 // ── Service container (resizable) ────────────────────────────────────────────
 
 export function ServiceNodeComp({ id, data, selected }: NodeProps) {
-  const { name, external, comment } = data as { name: string; external?: boolean; comment?: string };
+  const { name, external, isInterface, implements: implementsService, comment } = data as {
+    name: string;
+    external?: boolean;
+    isInterface?: boolean;
+    implements?: string;
+    comment?: string;
+  };
   const { onLayoutChange } = useContext(DiagramCallbackContext);
   const { getNodes } = useReactFlow();
 
@@ -342,7 +348,13 @@ export function ServiceNodeComp({ id, data, selected }: NodeProps) {
         handleStyle={{ width: 10, height: 10, borderRadius: 2, background: '#444', border: '1px solid #888' }}
       />
       <div style={styles.serviceLabel}>
+        {isInterface && <span style={{ fontStyle: 'italic', marginRight: 6, opacity: 0.8 }}>«interface»</span>}
         {name}
+        {implementsService && (
+          <span style={{ fontSize: 11, fontWeight: 400, color: '#888', marginLeft: 8 }}>
+            implements {implementsService}
+          </span>
+        )}
         {comment && <div style={styles.serviceLabelComment}>{comment}</div>}
       </div>
     </div>
@@ -412,6 +424,8 @@ export function StateMachineNodeComp({ data }: NodeProps) {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
+const COMMENT_MAX_WIDTH = 320;
+
 const styles: Record<string, React.CSSProperties> = {
   nodeComment: {
     fontFamily: 'monospace',
@@ -419,6 +433,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontStyle: 'italic',
     color: '#555',
     whiteSpace: 'pre-wrap',
+    maxWidth: COMMENT_MAX_WIDTH,
+    overflowWrap: 'break-word',
+    wordBreak: 'break-word',
   },
   commentDivider: {
     height: 1,
@@ -641,6 +658,9 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: 0,
     marginTop: 2,
     whiteSpace: 'pre-wrap',
+    maxWidth: COMMENT_MAX_WIDTH,
+    overflowWrap: 'break-word',
+    wordBreak: 'break-word',
   },
 
   stateMachine: {

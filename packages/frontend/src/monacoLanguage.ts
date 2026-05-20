@@ -9,7 +9,7 @@ export function registerDiagramLanguage(monaco: Monaco) {
   monaco.languages.register({ id: LANG_ID });
 
   monaco.languages.setMonarchTokensProvider(LANG_ID, {
-    keywords: ['Service', 'Entity', 'Enum', 'Event', 'EventHandler', 'Query', 'Action', 'Actor', 'Primitive', 'StateMachine', 'external'],
+    keywords: ['Service', 'Entity', 'Enum', 'Event', 'EventHandler', 'Query', 'Action', 'Actor', 'Primitive', 'StateMachine', 'external', 'interface', 'implements'],
     typeKeywords: ['string', 'number', 'boolean', 'Date', 'UUID', 'null'],
     tokenizer: {
       root: [
@@ -23,7 +23,7 @@ export function registerDiagramLanguage(monaco: Monaco) {
         [/->/, 'keyword.operator'],
 
         // Keywords
-        [/\b(Service|Entity|Enum|Event|EventHandler|Query|Action|Actor|Primitive|StateMachine|external)\b/, 'keyword'],
+        [/\b(Service|Entity|Enum|Event|EventHandler|Query|Action|Actor|Primitive|StateMachine|external|interface|implements)\b/, 'keyword'],
 
         // Primitive / built-in types
         [/\b(string|number|boolean|Date|UUID|null)\b/, 'type'],
