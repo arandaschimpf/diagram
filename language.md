@@ -16,6 +16,7 @@ A small language for describing service architectures. Write `.diagram` files �
 | `Actor`        | purple node      | External initiator (user, cron, webhook)            |
 | `Type`         | gray rectangle, or invisible if bodyless | Value type / data shape; bodyless acts as an opaque primitive |
 | `StateMachine` | slate compact card | Entity lifecycle: states and named transitions    |
+| `View`         | (no canvas presence) | Named saved filter — show a subset of the diagram |
 
 ---
 
@@ -338,6 +339,38 @@ Entity OrderStatusChange {
 Multiple field references to the same StateMachine collapse to a single arrow on the canvas.
 
 StateMachines may carry a top-of-body `//` comment and `@deprecated` / `@experimental` tags. States and transitions may carry leading `//` comments — these appear in the drill-down's trigger reference column.
+
+---
+
+## View
+
+A top-level, named saved filter. Picking a View from the canvas toolbar redraws the diagram showing only the listed nodes, auto-compacted. Views aren't drawn on the canvas, don't take part in edge inference, and are not a grouping construct — they're metadata for the renderer.
+
+```
+View CustodySubsystem {
+  include: [
+    AbstractWalletService.*
+    FundsService.*
+    Orders::CancelOrder
+  ]
+}
+```
+
+**Include entries:**
+- `Name` — include just that node (a leaf, or a Service container without its children).
+- `Name.*` — include the Service **and all its descendants**. Only meaningful on a Service; using it on a leaf is a warning.
+- Resolution matches the rest of the language: short names look up at the top level, `Service::Sub::Node` works for qualified references.
+
+**Behavior:**
+- Pure filter: anything not listed is hidden. Edges crossing into hidden nodes disappear (no stubs).
+- No automatic pickup. Implementing services (`Service Fordefi implements AbstractWalletService`), actors, external services, and callers must each be listed explicitly. Including an interface does **not** pull in its implementations.
+- Ancestor services of any included node are auto-included so the parent chain still renders (listing `Orders::CancelOrder` brings `Orders` along, but not `Orders`' other children).
+- Multiple `View` blocks per file are fine. Views must be top-level — they cannot be nested inside a Service.
+- Layout while a View is active is auto-compacted on the fly; positions aren't persisted per view. The full diagram keeps its existing saved layout.
+
+**Lint:**
+- Error: an include entry that doesn't resolve.
+- Warning: a visible node whose only incoming references come from hidden nodes (it'll render isolated).
 
 ---
 

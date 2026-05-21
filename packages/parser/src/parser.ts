@@ -1,6 +1,7 @@
 import type {
   AST, ServiceNode, DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode,
   QueryNode, ActionNode, ActorNode, TypeNode, StateMachineNode, State, StateTransition,
+  ViewNode, ViewIncludeEntry,
   Field, FieldType, Constraint, Call, Dispatch, Tag, Diagnostic,
 } from './types.js';
 
@@ -38,7 +39,7 @@ function tokenize(src: string): Token[] {
       i += 2;
       continue;
     }
-    if ('{}[]:|?@,->'.includes(src[i])) {
+    if ('{}[]:|?@,->.*'.includes(src[i])) {
       tokens.push({ kind: 'symbol', value: src[i], line });
       i++;
       continue;
@@ -138,11 +139,21 @@ class Parser {
 
   parse(): AST {
     const nodes: DiagramNode[] = [];
+    const views: ViewNode[] = [];
     while (this.peek().kind !== 'eof') {
       if (this.peek().kind === 'comment') { this.consume(); continue; }
-      nodes.push(this.parseNode());
+      const t = this.peek();
+      if (t.kind === 'ident' && t.value === 'View') {
+        views.push(this.parseView());
+      } else {
+        nodes.push(this.parseNode());
+      }
     }
-    return { nodes, warnings: this.warnings.length > 0 ? this.warnings : undefined };
+    return {
+      nodes,
+      ...(views.length > 0 ? { views } : {}),
+      warnings: this.warnings.length > 0 ? this.warnings : undefined,
+    };
   }
 
   private parseService(external = false, declLine?: number, isInterface = false): ServiceNode {
@@ -206,7 +217,8 @@ class Parser {
       case 'Actor': return this.parseActor();
       case 'Type': return this.parseType();
       case 'StateMachine': return this.parseStateMachine();
-      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Enum, Event, EventHandler, Query, Action, Actor, Type, StateMachine, external, interface)`);
+      case 'View': throw new Error(`'View' must be declared at the top level, not inside a Service${atLine(t)}`);
+      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Enum, Event, EventHandler, Query, Action, Actor, Type, StateMachine, View, external, interface)`);
     }
   }
 
@@ -449,6 +461,44 @@ class Parser {
       this.expectSymbol('}');
     }
     return { kind: 'Type', name: name.value, fields, tags, comment, line: kw.line };
+  }
+
+  private parseView(): ViewNode {
+    const kw = this.expectIdent('View');
+    const name = this.expectIdent();
+    this.expectSymbol('{');
+    const comment = this.consumeLeadingComment();
+    const include: ViewIncludeEntry[] = [];
+    while (!this.peekIs('symbol', '}')) {
+      if (this.peek().kind === 'eof') break;
+      if (this.peek().kind === 'comment') { this.consume(); continue; }
+      if (this.peekIs('ident', 'include')) {
+        this.consume();
+        this.expectSymbol(':');
+        this.expectSymbol('[');
+        while (!this.peekIs('symbol', ']')) {
+          if (this.peek().kind === 'eof') break;
+          if (this.peek().kind === 'comment') { this.consume(); continue; }
+          if (this.peekIs('symbol', ',')) { this.consume(); continue; }
+          if (this.peek().kind !== 'ident') { this.consume(); continue; }
+          const tok = this.expectIdent();
+          let recursive = false;
+          if (this.peekIs('symbol', '.')) {
+            this.consume();
+            if (this.peekIs('symbol', '*')) {
+              this.consume();
+              recursive = true;
+            }
+          }
+          include.push({ name: tok.value, recursive, line: tok.line });
+        }
+        this.expectSymbol(']');
+      } else {
+        this.unknownKey('View', ['include']);
+      }
+    }
+    this.expectSymbol('}');
+    return { kind: 'View', name: name.value, include, comment, line: kw.line };
   }
 
   private parseStateMachine(): StateMachineNode {

@@ -1,6 +1,6 @@
 ---
 name: diagram-dsl
-description: Teaches and assists with the service diagram DSL language. Use when the user asks how to write a diagram, what syntax to use, wants to add nodes or connections, or asks about Entity/Enum/Event/EventHandler/Query/Action/Actor/Type/StateMachine/external/@either/@unique/@initial syntax.
+description: Teaches and assists with the service diagram DSL language. Use when the user asks how to write a diagram, what syntax to use, wants to add nodes or connections, or asks about Entity/Enum/Event/EventHandler/Query/Action/Actor/Type/StateMachine/View/external/@either/@unique/@initial syntax.
 ---
 
 You are an expert in the service diagram DSL used in this project. Your job is to teach the language, answer questions about it, and help the user write or fix DSL code.
@@ -376,6 +376,37 @@ StateMachine supports a leading `//` comment, `@deprecated` / `@experimental` ta
 - No duplicate trigger within a single source state (error).
 - No self-loops (error).
 - States unreachable from `@initial` (warning).
+
+---
+
+### View (named saved filter — no canvas presence)
+
+Names a subset of the architecture for focused viewing. A View is a top-level construct, not a node — it doesn't render on the canvas as a shape, doesn't participate in arrows, and isn't a grouping mechanism. It's a saved filter: pick a View from the canvas toolbar dropdown and the diagram redraws showing only the listed nodes (auto-compacted).
+
+```
+View CustodySubsystem {
+  include: [
+    AbstractWalletService.*
+    FundsService.*
+    Orders::CancelOrder
+  ]
+}
+```
+
+**Include entries:**
+- `Name` — include just that node (a service container without its children, or a single leaf like an Action/Entity/Event).
+- `Name.*` — include that Service and **all** of its descendants (transitive). `.*` only makes sense on a Service; using it on a leaf is a warning.
+- Names use the same resolution as everywhere else: short names look up at the top level, qualified `Service::Sub::Node` paths work too.
+
+**Semantics:**
+- Pure filter — anything not listed is hidden. Edges crossing the boundary disappear (no stubs).
+- No automatic pickup: implementing services, callers, actors, and external services must each be listed explicitly. Including an interface Service like `AbstractWalletService.*` does **not** pull in `Service Fordefi implements AbstractWalletService`.
+- Ancestor services of any listed node are auto-included so the parent chain renders (e.g. `Orders::CancelOrder` brings the `Orders` container along, but not Orders' other children).
+- Multiple `View` blocks per file are fine. Views must be at the top level — you cannot nest a View inside a Service.
+
+**Lint:**
+- Error: an include entry that doesn't resolve.
+- Warning: a visible node whose only incoming references come from hidden nodes (it'll render isolated in the view).
 
 ---
 

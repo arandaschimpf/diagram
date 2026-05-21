@@ -158,6 +158,22 @@ export type DiagramNode =
   | ServiceNode
   | StateMachineNode;
 
+export type ViewIncludeEntry = {
+  /** Qualified name as written (e.g. "AbstractWalletService" or "Platform::Custody"). */
+  name: string;
+  /** True if entry was written as `Name.*` — include the named service and all its descendants. */
+  recursive: boolean;
+  line?: number;
+};
+
+export type ViewNode = {
+  kind: 'View';
+  name: string;
+  include: ViewIncludeEntry[];
+  comment?: string;
+  line?: number;
+};
+
 export type Diagnostic = {
   severity: 'error' | 'warning';
   message: string;
@@ -166,6 +182,7 @@ export type Diagnostic = {
 
 export type AST = {
   nodes: DiagramNode[];
+  views?: ViewNode[];
   warnings?: Diagnostic[];
   /** Set by resolveInheritance to short-circuit redundant passes. */
   inheritanceResolved?: boolean;

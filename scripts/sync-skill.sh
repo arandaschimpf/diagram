@@ -19,3 +19,10 @@ for dst in "${TARGETS[@]}"; do
   cp -R "$SRC" "$dst"
   echo "Synced -> $dst"
 done
+
+# Sync for Antigravity (Gemini)
+GEMINI_DST_DIR="$HOME/.gemini/antigravity/skills"
+mkdir -p "$GEMINI_DST_DIR"
+cp "$SRC/SKILL.md" "$GEMINI_DST_DIR/diagram-dsl.md"
+echo "Synced -> $GEMINI_DST_DIR/diagram-dsl.md"
+

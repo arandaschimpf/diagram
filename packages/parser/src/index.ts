@@ -3,11 +3,14 @@ export { serialize } from './serializer.js';
 export { inferEdges } from './edges.js';
 export { lint } from './lint.js';
 export { resolveInheritance } from './inheritance.js';
+export { resolveView } from './views.js';
+export type { ResolvedView } from './views.js';
 export { diffRenames, migrateLayout } from './diffRenames.js';
 export type { Rename, Layout } from './diffRenames.js';
 export { parseLayout, serializeLayout } from './layoutFormat.js';
 export type {
   AST, ServiceNode, DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode,
   QueryNode, ActionNode, ActorNode, TypeNode, StateMachineNode, State, StateTransition,
+  ViewNode, ViewIncludeEntry,
   Field, FieldType, Edge, Constraint, Call, Dispatch, Diagnostic, Tag,
 } from './types.js';

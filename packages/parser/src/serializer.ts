@@ -1,4 +1,4 @@
-import type { AST, DiagramNode, Field, FieldType, Tag } from './types.js';
+import type { AST, DiagramNode, Field, FieldType, Tag, ViewNode } from './types.js';
 
 function serializeFieldType(type: FieldType): string {
   let s = type.base;
@@ -159,6 +159,15 @@ function serializeNode(node: DiagramNode, indent: string): string {
   }
 }
 
+function serializeView(view: ViewNode): string {
+  const commentStr = serializeComment(view.comment, '  ');
+  const entries = view.include.map(e => `    ${e.name}${e.recursive ? '.*' : ''}`).join('\n');
+  const body = entries ? `  include: [\n${entries}\n  ]\n` : '';
+  return `View ${view.name} {\n${commentStr}${body}}`;
+}
+
 export function serialize(ast: AST): string {
-  return ast.nodes.map(n => serializeNode(n, '')).join('\n\n');
+  const nodes = ast.nodes.map(n => serializeNode(n, ''));
+  const views = (ast.views ?? []).map(serializeView);
+  return [...nodes, ...views].join('\n\n');
 }

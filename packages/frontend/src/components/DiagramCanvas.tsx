@@ -47,6 +47,13 @@ interface Props {
   onDeleteEdge?: (sourceId: string, targetId: string, targetKind: TargetKind) => void;
   onOpenStateMachine?: (node: import('@diagram/parser').StateMachineNode) => void;
   focusTarget?: FocusTarget | null;
+  /**
+   * When this string changes (non-null), the canvas runs auto-layout once on
+   * the current node set without persisting to disk. Used to auto-compact
+   * Views: null means "full diagram, don't relayout", a view name means
+   * "fresh auto-layout for these nodes".
+   */
+  autoLayoutKey?: string | null;
 }
 
 const SOURCE_KINDS = new Set(['action', 'eventhandler', 'actor']);
@@ -159,6 +166,40 @@ function FocusHandler({ target, setNodes }: { target: FocusTarget | null | undef
   return null;
 }
 
+/**
+ * When a View becomes active (autoLayoutKey transitions to non-null, or changes
+ * between non-null values), recompute positions on the fly. We don't persist —
+ * Views use shared layout with auto-compact each open.
+ */
+function ViewAutoLayout({ autoLayoutKey }: { autoLayoutKey: string | null | undefined }) {
+  const { getNodes, getEdges, setNodes, fitView } = useReactFlow();
+  useEffect(() => {
+    if (!autoLayoutKey) return;
+    let cancelled = false;
+    (async () => {
+      // Defer one frame so the latest node set (post-filter) is mounted.
+      await new Promise(r => requestAnimationFrame(() => r(null)));
+      if (cancelled) return;
+      const all = getNodes();
+      if (all.length === 0) return;
+      const result = await computeAutoLayout(all, getEdges());
+      if (cancelled) return;
+      setNodes(curr => curr.map(n => {
+        const r = result.get(n.id);
+        if (!r) return n;
+        const next: Node = { ...n, position: { x: r.x, y: r.y } };
+        if (n.type === 'service' && r.width != null && r.height != null) {
+          next.style = { ...n.style, width: r.width, height: r.height };
+        }
+        return next;
+      }));
+      setTimeout(() => fitView({ duration: 300, padding: 0.1 }), 50);
+    })();
+    return () => { cancelled = true; };
+  }, [autoLayoutKey, getNodes, getEdges, setNodes, fitView]);
+  return null;
+}
+
 function SavePngButton({ filename }: { filename: string }) {
   const { getNodes } = useReactFlow();
 
@@ -232,7 +273,7 @@ function MiniMapWithNavigation() {
   );
 }
 
-export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, currentLayout, onLayoutChange, onNodeRightClick, onAddEdge, onDeleteEdge, onOpenStateMachine, focusTarget }: Props) {
+export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, currentLayout, onLayoutChange, onNodeRightClick, onAddEdge, onDeleteEdge, onOpenStateMachine, focusTarget, autoLayoutKey }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState(propNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(propEdges);
   const [animating, setAnimating] = useState(false);
@@ -310,6 +351,7 @@ export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, cu
           proOptions={{ hideAttribution: true }}
         >
           <FocusHandler target={focusTarget} setNodes={setNodes} />
+          <ViewAutoLayout autoLayoutKey={autoLayoutKey} />
           <Background color="#333" gap={16} />
           <Controls>
             <AutoLayoutButton currentLayout={currentLayout} setAnimating={setAnimating} onLayoutChange={onLayoutChange} />

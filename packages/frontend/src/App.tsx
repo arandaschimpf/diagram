@@ -186,10 +186,20 @@ export default function App() {
     }, 5000);
   }, [updateCode]);
 
-  const { nodes, edges } = useMemo(
-    () => dslToFlow(code, layout),
-    [code, layout],
+  const [activeView, setActiveView] = useState<string | null>(null);
+
+  const { nodes, edges, views, viewMissing } = useMemo(
+    () => dslToFlow(code, layout, activeView),
+    [code, layout, activeView],
   );
+
+  // If the active view is renamed or deleted in the DSL, fall back to the full diagram.
+  useEffect(() => {
+    if (viewMissing) setActiveView(null);
+  }, [viewMissing]);
+
+  // Reset active view when switching files.
+  useEffect(() => { setActiveView(null); }, [currentFile]);
 
   const diagnostics = useDiagnostics(code);
 
@@ -330,18 +340,32 @@ export default function App() {
               >
                 {showEditor ? '◀ Hide' : '{ } Code'}
               </button>
+              {views.length > 0 && (
+                <select
+                  style={styles.viewSelect}
+                  value={activeView ?? ''}
+                  onChange={e => setActiveView(e.target.value || null)}
+                  title="Filter the canvas to a named View"
+                >
+                  <option value="">Full diagram</option>
+                  {views.map(v => (
+                    <option key={v.name} value={v.name}>{v.name}</option>
+                  ))}
+                </select>
+              )}
               <DiagramCanvas
                 key={currentFile}
                 nodes={nodes}
                 edges={edges}
                 filename={currentFile ?? undefined}
-                currentLayout={layout}
-                onLayoutChange={handleLayoutChange}
+                currentLayout={activeView ? {} : layout}
+                onLayoutChange={activeView ? () => {} : handleLayoutChange}
                 onNodeRightClick={handleNodeRightClick}
                 onAddEdge={handleAddEdge}
                 onDeleteEdge={handleDeleteEdge}
                 onOpenStateMachine={setOpenStateMachine}
                 focusTarget={focusTarget}
+                autoLayoutKey={activeView}
               />
             </div>
           </div>
@@ -410,6 +434,21 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute',
     top: 12,
     left: 12,
+    zIndex: 10,
+    background: '#1e1e2e',
+    border: '1px solid #444',
+    color: '#aaa',
+    borderRadius: 6,
+    padding: '5px 10px',
+    fontSize: 12,
+    cursor: 'pointer',
+    fontFamily: 'monospace',
+    letterSpacing: 0.5,
+  },
+  viewSelect: {
+    position: 'absolute',
+    top: 12,
+    left: 100,
     zIndex: 10,
     background: '#1e1e2e',
     border: '1px solid #444',

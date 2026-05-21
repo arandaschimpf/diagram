@@ -1,5 +1,5 @@
-import { parse, inferEdges, resolveInheritance } from '@diagram/parser';
-import type { AST, DiagramNode } from '@diagram/parser';
+import { parse, inferEdges, resolveInheritance, resolveView } from '@diagram/parser';
+import type { AST, DiagramNode, ResolvedView } from '@diagram/parser';
 import { MarkerType } from '@xyflow/react';
 import type { Node, Edge } from '@xyflow/react';
 
@@ -65,25 +65,59 @@ function processNodes(
   }
 }
 
-export function dslToFlow(src: string, layout: Layout): { nodes: Node[]; edges: Edge[]; ast: AST | null } {
+export type ViewInfo = { name: string };
+
+export function dslToFlow(
+  src: string,
+  layout: Layout,
+  activeView?: string | null,
+): { nodes: Node[]; edges: Edge[]; ast: AST | null; views: ViewInfo[]; viewMissing: boolean } {
   let ast: AST;
   try {
     ast = parse(src);
   } catch {
-    return { nodes: [], edges: [], ast: null };
+    return { nodes: [], edges: [], ast: null, views: [], viewMissing: false };
   }
 
   const inheritedAst = resolveInheritance(ast);
+  const views: ViewInfo[] = (ast.views ?? []).map(v => ({ name: v.name }));
+
+  let resolved: ResolvedView | null = null;
+  let viewMissing = false;
+  if (activeView) {
+    const view = (ast.views ?? []).find(v => v.name === activeView);
+    if (view) {
+      resolved = resolveView(inheritedAst, view);
+    } else {
+      viewMissing = true;
+    }
+  }
+
+  // When a view is active, ignore the saved layout — positions are computed
+  // by auto-layout each time the view is opened (decision: shared layout,
+  // auto-compact on the fly, no per-view persistence).
+  const effectiveLayout = resolved ? {} : layout;
 
   const xyNodes: Node[] = [];
   const counter = { value: 0 };
-  processNodes(inheritedAst.nodes, [], undefined, layout, counter, xyNodes);
+  processNodes(inheritedAst.nodes, [], undefined, effectiveLayout, counter, xyNodes);
+
+  let filteredNodes = xyNodes;
+  if (resolved) {
+    filteredNodes = xyNodes.filter(n => {
+      if (n.type === 'service') {
+        return resolved!.visibleServices.has(n.id.replace(/^service::/, ''));
+      }
+      return resolved!.visibleLeaves.has(n.id);
+    });
+  }
 
   const edges: Edge[] = [];
   const inferred = inferEdges(inheritedAst);
   for (const e of inferred) {
-    const fromNode = xyNodes.find(n => n.id === e.from && n.type !== 'service');
-    const toNode = xyNodes.find(n => n.id === e.to && n.type !== 'service');
+    if (resolved && !(resolved.visibleLeaves.has(e.from) && resolved.visibleLeaves.has(e.to))) continue;
+    const fromNode = filteredNodes.find(n => n.id === e.from && n.type !== 'service');
+    const toNode = filteredNodes.find(n => n.id === e.to && n.type !== 'service');
     if (!fromNode || !toNode) continue;
     const color = e.dashed ? '#7a9ab8' : '#5b9bd5';
     edges.push({
@@ -105,7 +139,7 @@ export function dslToFlow(src: string, layout: Layout): { nodes: Node[]; edges: 
     });
   }
 
-  return { nodes: xyNodes, edges, ast };
+  return { nodes: filteredNodes, edges, ast, views, viewMissing };
 }
 
 export function flowToAst(nodes: Node[], currentAst: AST): AST {

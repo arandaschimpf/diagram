@@ -1,6 +1,7 @@
 import type { AST, DiagramNode, Diagnostic } from './types.js';
 import { isReference } from './parser.js';
 import { resolveInheritance } from './inheritance.js';
+import { lintViews } from './views.js';
 
 type NodeKind = DiagramNode['kind'];
 
@@ -288,6 +289,7 @@ export function lint(ast: AST): Diagnostic[] {
   const userPrimitives = new Set<string>();
   collectBodylessTypes(inheritedAst.nodes, userPrimitives);
   lintNodes(inheritedAst.nodes, [], globalIndex, userPrimitives, diagnostics);
+  diagnostics.push(...lintViews(inheritedAst));
   diagnostics.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
   return diagnostics;
 }
