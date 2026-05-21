@@ -8,7 +8,7 @@ import { createServer } from 'net';
 import { join, resolve, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
 import chokidar from 'chokidar';
-import { parse as parseDiagram, diffRenames, migrateLayout, type AST, type Layout } from '@diagram/parser';
+import { parse as parseDiagram, diffRenames, migrateLayout, parseLayout, serializeLayout, type AST, type Layout } from '@diagram/parser';
 
 function findPort(preferred: number): Promise<number> {
   return new Promise((res) => {
@@ -117,13 +117,13 @@ app.post<{ Body: string }>('/api/parse', {
 app.get<{ Params: { '*': string } }>('/api/layouts/*', async (req, reply) => {
   const p = layoutPath(req.params['*']);
   if (!existsSync(p)) return reply.send({});
-  return reply.send(JSON.parse(await readFile(p, 'utf8')));
+  return reply.send(parseLayout(await readFile(p, 'utf8')));
 });
 
 app.put<{ Params: { '*': string }; Body: unknown }>('/api/layouts/*', async (req, reply) => {
   const p = layoutPath(req.params['*']);
   await mkdir(dirname(p), { recursive: true });
-  await writeFile(p, JSON.stringify(req.body, null, 2), 'utf8');
+  await writeFile(p, serializeLayout(req.body as Layout), 'utf8');
   return reply.code(200).send({ ok: true });
 });
 
@@ -170,7 +170,7 @@ async function migrateLayoutFile(name: string): Promise<boolean> {
   if (!existsSync(lp)) return false;
   let layout: Layout;
   try {
-    layout = JSON.parse(await readFile(lp, 'utf8')) as Layout;
+    layout = parseLayout(await readFile(lp, 'utf8'));
   } catch {
     return false;
   }
@@ -178,7 +178,7 @@ async function migrateLayoutFile(name: string): Promise<boolean> {
   const migrated = migrateLayout(layout, renames);
   if (!migrated) return false;
 
-  await writeFile(lp, JSON.stringify(migrated, null, 2), 'utf8');
+  await writeFile(lp, serializeLayout(migrated), 'utf8');
   return true;
 }
 

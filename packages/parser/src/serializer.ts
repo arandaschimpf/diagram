@@ -115,8 +115,16 @@ function serializeNode(node: DiagramNode, indent: string): string {
       }
       return `${indent}Action ${node.name} {\n${commentStr}${tagsStr}${parts.join('\n')}\n${indent}}`;
     }
-    case 'Primitive': {
-      return `${indent}Primitive ${node.name}`;
+    case 'Type': {
+      if (node.fields.length === 0 && !node.comment) {
+        const inlineTags = node.tags.length > 0 ? ' ' + node.tags.map(t => `@${t}`).join(' ') : '';
+        return `${indent}Type ${node.name}${inlineTags}`;
+      }
+      const commentStr = serializeComment(node.comment, i2);
+      const tagsStr = serializeTags(node.tags, i2);
+      const fields = node.fields.map(f => serializeField(f, i2)).join('\n');
+      const body = fields ? `${fields}\n` : '';
+      return `${indent}Type ${node.name} {\n${commentStr}${tagsStr}${body}${indent}}`;
     }
     case 'StateMachine': {
       const commentStr = serializeComment(node.comment, i2);

@@ -1,6 +1,6 @@
 import type {
   AST, ServiceNode, DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode,
-  QueryNode, ActionNode, ActorNode, PrimitiveNode, StateMachineNode, State, StateTransition,
+  QueryNode, ActionNode, ActorNode, TypeNode, StateMachineNode, State, StateTransition,
   Field, FieldType, Constraint, Call, Dispatch, Tag, Diagnostic,
 } from './types.js';
 
@@ -204,9 +204,9 @@ class Parser {
       case 'Query': return this.parseQuery();
       case 'Action': return this.parseAction();
       case 'Actor': return this.parseActor();
-      case 'Primitive': return this.parsePrimitive();
+      case 'Type': return this.parseType();
       case 'StateMachine': return this.parseStateMachine();
-      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Enum, Event, EventHandler, Query, Action, Actor, Primitive, StateMachine, external, interface)`);
+      default: throw new Error(`Unknown node type '${t.value}'${atLine(t)} (expected: Service, Entity, Enum, Event, EventHandler, Query, Action, Actor, Type, StateMachine, external, interface)`);
     }
   }
 
@@ -434,10 +434,21 @@ class Parser {
     return { kind: 'Actor', name: name.value, calls, tags, comment, line: kw.line };
   }
 
-  private parsePrimitive(): PrimitiveNode {
-    const kw = this.expectIdent('Primitive');
+  private parseType(): TypeNode {
+    const kw = this.expectIdent('Type');
     const name = this.expectIdent();
-    return { kind: 'Primitive', name: name.value, line: kw.line };
+    const tags: Tag[] = [];
+    while (this.tryParseTag(tags)) { /* consume leading tags */ }
+    let fields: Field[] = [];
+    let comment: string | undefined;
+    if (this.peekIs('symbol', '{')) {
+      this.expectSymbol('{');
+      comment = this.consumeLeadingComment();
+      while (this.tryParseTag(tags)) { /* consume body-leading tags */ }
+      fields = this.parseFields();
+      this.expectSymbol('}');
+    }
+    return { kind: 'Type', name: name.value, fields, tags, comment, line: kw.line };
   }
 
   private parseStateMachine(): StateMachineNode {

@@ -1,8 +1,12 @@
-import type { AST, DiagramNode, Edge, EntityNode, EventHandlerNode, ActionNode, ActorNode, QueryNode } from './types.js';
+import type { AST, DiagramNode, Edge, EntityNode, EventHandlerNode, ActionNode, ActorNode, QueryNode, TypeNode } from './types.js';
 import { isReference } from './parser.js';
 import { resolveInheritance } from './inheritance.js';
 
 type NodeIndex = Map<string, string>; // qualifiedName → XYFlow leaf node id
+
+function isBodylessType(node: DiagramNode): boolean {
+  return node.kind === 'Type' && node.fields.length === 0;
+}
 
 function buildIndex(nodes: DiagramNode[], prefix: string[]): NodeIndex {
   const index: NodeIndex = new Map();
@@ -10,7 +14,7 @@ function buildIndex(nodes: DiagramNode[], prefix: string[]): NodeIndex {
     if (node.kind === 'Service') {
       const childIndex = buildIndex(node.children, [...prefix, node.name]);
       for (const [k, v] of childIndex) index.set(k, v);
-    } else if (node.kind !== 'Primitive') {
+    } else if (!isBodylessType(node)) {
       const qualified = [...prefix, node.name].join('::');
       index.set(qualified, qualified);
     }
@@ -18,10 +22,10 @@ function buildIndex(nodes: DiagramNode[], prefix: string[]): NodeIndex {
   return index;
 }
 
-function collectPrimitives(nodes: DiagramNode[], out: Set<string>): void {
+function collectBodylessTypes(nodes: DiagramNode[], out: Set<string>): void {
   for (const node of nodes) {
-    if (node.kind === 'Service') collectPrimitives(node.children, out);
-    else if (node.kind === 'Primitive') out.add(node.name);
+    if (node.kind === 'Service') collectBodylessTypes(node.children, out);
+    else if (isBodylessType(node)) out.add(node.name);
   }
 }
 
@@ -50,7 +54,7 @@ function collectEdges(
 ) {
   const siblingMap = new Map<string, string>();
   for (const node of nodes) {
-    if (node.kind !== 'Service' && node.kind !== 'Primitive') {
+    if (node.kind !== 'Service' && !isBodylessType(node)) {
       siblingMap.set(node.name, [...prefix, node.name].join('::'));
     }
   }
@@ -60,12 +64,13 @@ function collectEdges(
       collectEdges(node.children, [...prefix, node.name], globalIndex, userPrimitives, edges);
       continue;
     }
-    if (node.kind === 'Primitive') continue;
+    if (isBodylessType(node)) continue;
 
     const fromId = [...prefix, node.name].join('::');
 
-    if (node.kind === 'Entity') {
-      for (const field of (node as EntityNode).fields) {
+    if (node.kind === 'Entity' || node.kind === 'Type') {
+      const fields = (node as EntityNode | TypeNode).fields;
+      for (const field of fields) {
         if (isReference(field.type) && !userPrimitives.has(field.type.base)) {
           const toId = resolve(field.type.base, prefix, siblingMap, globalIndex);
           if (toId) {
@@ -120,7 +125,7 @@ export function inferEdges(ast: AST): Edge[] {
   const raw: Edge[] = [];
   const globalIndex = buildIndex(inheritedAst.nodes, []);
   const userPrimitives = new Set<string>();
-  collectPrimitives(inheritedAst.nodes, userPrimitives);
+  collectBodylessTypes(inheritedAst.nodes, userPrimitives);
   collectEdges(inheritedAst.nodes, [], globalIndex, userPrimitives, raw);
   // Collapse multiple references between the same (from, to) into one edge.
   // Label is kept only if all contributing edges share it. Dashed only if

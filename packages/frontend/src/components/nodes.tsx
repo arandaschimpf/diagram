@@ -1,6 +1,6 @@
 import { useCallback, useContext } from 'react';
 import { Handle, Position, NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
-import type { DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode, QueryNode, ActionNode, ActorNode, StateMachineNode } from '@diagram/parser';
+import type { DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode, QueryNode, ActionNode, ActorNode, StateMachineNode, TypeNode } from '@diagram/parser';
 import { DiagramCallbackContext } from '../diagramContext';
 import type { Layout } from '../dslToFlow';
 
@@ -93,6 +93,33 @@ export function EntityNodeComp({ data }: NodeProps) {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Type (neutral gray rectangle) ────────────────────────────────────────────
+
+export function TypeNodeComp({ data }: NodeProps) {
+  const node = (data as NodeData).node as TypeNode;
+  return (
+    <div style={styles.type}>
+      <Handle type="target" position={Position.Left} style={HANDLE_STYLE} />
+      <Handle type="source" position={Position.Right} style={HANDLE_STYLE} />
+      <div style={styles.typeTitle}>{node.name}</div>
+      <div style={styles.entityBody}>
+        {node.comment && (
+          <>
+            <div style={styles.nodeComment}>{node.comment}</div>
+            {node.fields.length > 0 && <div style={styles.commentDivider} />}
+          </>
+        )}
+        {node.fields.map(f => (
+          <div key={f.name} style={styles.field}>
+            <span style={styles.typeFieldName}>{f.name}{f.optional ? '?' : ''}</span>
+            <span style={styles.typeFieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -489,6 +516,27 @@ const styles: Record<string, React.CSSProperties> = {
     fontStyle: 'italic',
     whiteSpace: 'nowrap',
   },
+
+  type: {
+    background: '#e5e7eb',
+    border: '1.5px solid #6b7280',
+    borderRadius: 4,
+    width: 'max-content',
+    minWidth: 200,
+    fontFamily: 'monospace',
+    fontSize: 12,
+    boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+  },
+  typeTitle: {
+    background: '#6b7280',
+    color: '#fff',
+    fontWeight: 700,
+    padding: '4px 10px',
+    borderRadius: '2px 2px 0 0',
+    fontSize: 13,
+  },
+  typeFieldName: { color: '#374151', fontWeight: 600, flexShrink: 0 },
+  typeFieldType: { color: '#4b5563', whiteSpace: 'nowrap' },
 
   enum: {
     background: '#c9ebe5',

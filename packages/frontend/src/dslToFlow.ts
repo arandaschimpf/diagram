@@ -52,7 +52,7 @@ function processNodes(
   // Then leaf nodes
   for (const node of nodes) {
     if (node.kind === 'Service') continue;
-    if (node.kind === 'Primitive') continue;
+    if (node.kind === 'Type' && node.fields.length === 0) continue;
     const id = [...prefix, node.name].join('::');
     const pos = layout[id] ?? defaultPosition(counter.value++);
     result.push({

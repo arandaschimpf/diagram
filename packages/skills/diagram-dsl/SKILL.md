@@ -1,6 +1,6 @@
 ---
 name: diagram-dsl
-description: Teaches and assists with the service diagram DSL language. Use when the user asks how to write a diagram, what syntax to use, wants to add nodes or connections, or asks about Entity/Enum/Event/EventHandler/Query/Action/Actor/Primitive/StateMachine/external/@either/@unique/@initial syntax.
+description: Teaches and assists with the service diagram DSL language. Use when the user asks how to write a diagram, what syntax to use, wants to add nodes or connections, or asks about Entity/Enum/Event/EventHandler/Query/Action/Actor/Type/StateMachine/external/@either/@unique/@initial syntax.
 ---
 
 You are an expert in the service diagram DSL used in this project. Your job is to teach the language, answer questions about it, and help the user write or fix DSL code.
@@ -113,7 +113,7 @@ Entity Order {
 | `name?: string` | optional field |
 | `name: Platform::Auth::User` | qualified cross-service reference |
 
-Primitive types: `string`, `number`, `boolean`, `Date`, `UUID` (plus anything declared via `Primitive` — see below)
+Primitive types: `string`, `number`, `boolean`, `Date`, `UUID` (plus anything declared as a bodyless `Type` — see below)
 
 #### Entity constraints
 
@@ -266,12 +266,14 @@ The Actor body is optional. When present it may contain a leading comment and/or
 
 ---
 
-### Primitive (not rendered)
-Declares an extra primitive type name. Use this for opaque or loosely-typed fields (`object`, `Json`, `Buffer`, …) where you don't want a node on the canvas and don't want the linter flagging the type as unknown.
+### Type (gray rectangle, or invisible if bodyless)
+Declares a value type / data shape. A `Type` can be **bodyless** (acts as an opaque primitive — invisible, no edges, global lookup) or **bodied** (renders as a gray card with fields like an Entity, but represents a value type with no identity / no `@unique` / `@either`).
+
+**Bodyless** — for opaque or loosely-typed fields (`object`, `Json`, `Buffer`, …) where you don't want a node on the canvas and don't want the linter flagging the type as unknown:
 
 ```
-Primitive object
-Primitive Json
+Type object
+Type Json
 
 Entity Event {
   id:       string
@@ -280,7 +282,29 @@ Entity Event {
 }
 ```
 
-`Primitive` has no body and renders nothing on the diagram. Declarations are global — they can appear at any level (top-level or inside a `Service`) and are visible everywhere.
+Bodyless declarations are global — they can appear at any level (top-level or inside a `Service`) and are visible everywhere.
+
+**Bodied** — a named record type with typed fields. Renders on the canvas in neutral gray to distinguish it from Entities. References from other nodes draw arrows to it.
+
+```
+Type Money {
+  amount:   number
+  currency: string
+}
+
+Entity Invoice {
+  invoice_id: string
+  total:      Money        // → arrow to Money
+}
+```
+
+Bodied Types support `@deprecated` / `@experimental` tags, a leading `//` comment, and `field?: T` optional fields. They do **not** support `@unique` / `@either` constraints (those imply identity, which belongs on `Entity`). Bodied Types are scoped to their declaring service like Entities — `Service Billing { Type Money { ... } }` has the qualified id `Billing::Money`.
+
+Tags can also attach to bodyless declarations inline:
+
+```
+Type Json @experimental
+```
 
 ---
 

@@ -65,11 +65,18 @@ function nodeSize(n: Node): { width: number; height: number } {
 
 function buildElkGraph(nodes: Node[], edges: Edge[]): ElkNode {
   const seenNodeIds = new Set<string>();
-  const uniqueNodes = nodes.filter(n => {
-    if (seenNodeIds.has(n.id)) return false;
-    seenNodeIds.add(n.id);
-    return true;
-  });
+  const uniqueNodes = nodes
+    .filter(n => {
+      if (seenNodeIds.has(n.id)) return false;
+      seenNodeIds.add(n.id);
+      return true;
+    })
+    .slice()
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  const sortedEdges = edges
+    .slice()
+    .sort((a, b) => (a.source + '→' + a.target).localeCompare(b.source + '→' + b.target));
 
   const services = uniqueNodes.filter(n => n.type === 'service');
   const leaves = uniqueNodes.filter(n => n.type !== 'service');
@@ -89,6 +96,10 @@ function buildElkGraph(nodes: Node[], edges: Edge[]): ElkNode {
         'elk.layered.spacing.nodeNodeBetweenLayers': '60',
         'elk.spacing.nodeNode': '30',
         'elk.partitioning.activate': 'true',
+        'elk.randomSeed': '1',
+        'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+        'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+        'elk.layered.cycleBreaking.strategy': 'GREEDY',
       },
       children: [],
       edges: [],
@@ -126,7 +137,7 @@ function buildElkGraph(nodes: Node[], edges: Edge[]): ElkNode {
 
   // Edges are placed in the lowest common ancestor (or root). For simplicity put all at root —
   // ELK accepts cross-hierarchy edges when 'elk.hierarchyHandling' is INCLUDE_CHILDREN.
-  const rootEdges: ElkEdge[] = edges.map((e, i) => ({
+  const rootEdges: ElkEdge[] = sortedEdges.map((e, i) => ({
     id: `e${i}`,
     sources: [e.source],
     targets: [e.target],
@@ -140,6 +151,10 @@ function buildElkGraph(nodes: Node[], edges: Edge[]): ElkNode {
       'elk.layered.spacing.nodeNodeBetweenLayers': '80',
       'elk.spacing.nodeNode': '50',
       'elk.padding': '[top=20,left=20,bottom=20,right=20]',
+      'elk.randomSeed': '1',
+      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+      'elk.layered.cycleBreaking.strategy': 'GREEDY',
     },
     children: rootChildren,
     edges: rootEdges,

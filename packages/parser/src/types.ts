@@ -101,9 +101,12 @@ export type ActorNode = {
   line?: number;
 };
 
-export type PrimitiveNode = {
-  kind: 'Primitive';
+export type TypeNode = {
+  kind: 'Type';
   name: string;
+  fields: Field[];
+  tags: Tag[];
+  comment?: string;
   line?: number;
 };
 
@@ -151,7 +154,7 @@ export type DiagramNode =
   | QueryNode
   | ActionNode
   | ActorNode
-  | PrimitiveNode
+  | TypeNode
   | ServiceNode
   | StateMachineNode;
 

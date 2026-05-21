@@ -12,7 +12,7 @@ import { toPng } from 'html-to-image';
 import {
   EntityNodeComp, EnumNodeComp, EventNodeComp, EventHandlerNodeComp,
   QueryNodeComp, ActionNodeComp, ActorNodeComp, ServiceNodeComp,
-  StateMachineNodeComp,
+  StateMachineNodeComp, TypeNodeComp,
 } from './nodes';
 import type { Layout } from '../dslToFlow';
 import { DiagramCallbackContext } from '../diagramContext';
@@ -28,6 +28,7 @@ const nodeTypes = {
   actor: ActorNodeComp,
   service: ServiceNodeComp,
   statemachine: StateMachineNodeComp,
+  type: TypeNodeComp,
 };
 
 const EXPORT_ZOOM = 1.5;
@@ -215,6 +216,22 @@ function SavePngButton({ filename }: { filename: string }) {
   );
 }
 
+function MiniMapWithNavigation() {
+  const { fitView } = useReactFlow();
+  const handleNodeClick = useCallback((_event: unknown, node: Node) => {
+    fitView({ nodes: [{ id: node.id }], duration: 400, maxZoom: 1.2, padding: 0.4 });
+  }, [fitView]);
+  return (
+    <MiniMap
+      nodeColor={nodeColor}
+      style={{ background: '#1a1a1a' }}
+      pannable
+      zoomable
+      onNodeClick={handleNodeClick}
+    />
+  );
+}
+
 export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, currentLayout, onLayoutChange, onNodeRightClick, onAddEdge, onDeleteEdge, onOpenStateMachine, focusTarget }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState(propNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(propEdges);
@@ -298,7 +315,7 @@ export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, cu
             <AutoLayoutButton currentLayout={currentLayout} setAnimating={setAnimating} onLayoutChange={onLayoutChange} />
             <SavePngButton filename={filename ?? 'diagram'} />
           </Controls>
-          <MiniMap nodeColor={nodeColor} style={{ background: '#1a1a1a' }} />
+          <MiniMapWithNavigation />
         </ReactFlow>
       </div>
     </DiagramCallbackContext.Provider>
@@ -308,6 +325,7 @@ export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, cu
 function nodeColor(node: Node): string {
   switch (node.type) {
     case 'entity': return '#4a7fb5';
+    case 'type': return '#6b7280';
     case 'event': return '#c9a800';
     case 'eventhandler': return '#c87020';
     case 'query': return '#3a9e55';

@@ -10,30 +10,34 @@ type IndexEntry = {
   isInterface?: boolean;
 };
 
+function isBodylessType(node: DiagramNode): boolean {
+  return node.kind === 'Type' && node.fields.length === 0;
+}
+
 function buildIndex(nodes: DiagramNode[], prefix: string[], index: Map<string, IndexEntry>): void {
   for (const node of nodes) {
     if (node.kind === 'Service') {
       const qualified = [...prefix, node.name].join('::');
       index.set(qualified, { qualified, kind: node.kind, isInterface: node.isInterface });
       buildIndex(node.children, [...prefix, node.name], index);
-    } else if (node.kind !== 'Primitive') {
+    } else if (!isBodylessType(node)) {
       const qualified = [...prefix, node.name].join('::');
       index.set(qualified, { qualified, kind: node.kind });
     }
   }
 }
 
-function collectPrimitives(nodes: DiagramNode[], out: Set<string>): void {
+function collectBodylessTypes(nodes: DiagramNode[], out: Set<string>): void {
   for (const node of nodes) {
-    if (node.kind === 'Service') collectPrimitives(node.children, out);
-    else if (node.kind === 'Primitive') out.add(node.name);
+    if (node.kind === 'Service') collectBodylessTypes(node.children, out);
+    else if (isBodylessType(node)) out.add(node.name);
   }
 }
 
 function siblingsAt(nodes: DiagramNode[], prefix: string[]): Map<string, IndexEntry> {
   const siblings = new Map<string, IndexEntry>();
   for (const node of nodes) {
-    if (node.kind === 'Service' || node.kind === 'Primitive') continue;
+    if (node.kind === 'Service' || isBodylessType(node)) continue;
     const qualified = [...prefix, node.name].join('::');
     siblings.set(node.name, { qualified, kind: node.kind });
   }
@@ -73,7 +77,7 @@ function lintNodes(
 
   const seenNames = new Map<string, NodeKind>();
   for (const node of nodes) {
-    if (node.kind === 'Service' || node.kind === 'Primitive') continue;
+    if (node.kind === 'Service' || isBodylessType(node)) continue;
     const prior = seenNames.get(node.name);
     if (prior !== undefined) {
       const qualified = [...prefix, node.name].join('::');
@@ -115,11 +119,11 @@ function lintNodes(
       lintNodes(node.children, [...prefix, node.name], globalIndex, userPrimitives, diagnostics);
       continue;
     }
-    if (node.kind === 'Primitive') continue;
+    if (isBodylessType(node)) continue;
 
     const here = `${node.kind} ${[...prefix, node.name].join('::')}`;
 
-    if (node.kind === 'Entity') {
+    if (node.kind === 'Entity' || node.kind === 'Type') {
       const fieldNames = new Set(node.fields.map(f => f.name));
       for (const field of node.fields) {
         if (!isReference(field.type)) continue;
@@ -149,14 +153,16 @@ function lintNodes(
           }
         }
       }
-      for (const c of node.constraints) {
-        for (const f of c.fields) {
-          if (!fieldNames.has(f)) {
-            diagnostics.push({
-              severity: 'warning',
-              message: `${here}: @${c.kind} references unknown field '${f}'`,
-              line: c.line,
-            });
+      if (node.kind === 'Entity') {
+        for (const c of node.constraints) {
+          for (const f of c.fields) {
+            if (!fieldNames.has(f)) {
+              diagnostics.push({
+                severity: 'warning',
+                message: `${here}: @${c.kind} references unknown field '${f}'`,
+                line: c.line,
+              });
+            }
           }
         }
       }
@@ -280,7 +286,7 @@ export function lint(ast: AST): Diagnostic[] {
   const globalIndex = new Map<string, IndexEntry>();
   buildIndex(inheritedAst.nodes, [], globalIndex);
   const userPrimitives = new Set<string>();
-  collectPrimitives(inheritedAst.nodes, userPrimitives);
+  collectBodylessTypes(inheritedAst.nodes, userPrimitives);
   lintNodes(inheritedAst.nodes, [], globalIndex, userPrimitives, diagnostics);
   diagnostics.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
   return diagnostics;
