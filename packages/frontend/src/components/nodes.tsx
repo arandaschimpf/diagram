@@ -1,10 +1,160 @@
 import { useCallback, useContext } from 'react';
+import type { ComponentType } from 'react';
 import { Handle, Position, NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
-import type { DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode, QueryNode, ActionNode, ActorNode, StateMachineNode, TypeNode } from '@diagram/parser';
+import type { DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode, QueryNode, ActionNode, ActorNode, StateMachineNode, TypeNode, Field, NodeDiffInfo, NodeStatus } from '@diagram/parser';
 import { DiagramCallbackContext } from '../diagramContext';
 import type { Layout } from '../dslToFlow';
 
-type NodeData = { node: DiagramNode; serviceId: string };
+type NodeData = { node: DiagramNode; serviceId: string; diff?: NodeDiffInfo };
+
+// ── Diff helpers ────────────────────────────────────────────────────────────────
+
+type RowKind = 'added' | 'removed' | 'changed' | 'unchanged';
+
+const STATUS_COLOR: Record<string, string> = {
+  added: '#3fb950',
+  removed: '#f85149',
+  modified: '#d29922',
+  renamed: '#d29922',
+  ancestor: '#d29922',
+};
+
+const STATUS_BADGE: Record<string, string> = {
+  added: '+', removed: '−', modified: '~', renamed: '~', ancestor: '~',
+};
+
+function fieldEqual(a: Field, b: Field): boolean {
+  return a.optional === b.optional
+    && a.type.base === b.type.base
+    && a.type.array === b.type.array
+    && a.type.nullable === b.type.nullable;
+}
+
+/** Merge current + previous named rows into an ordered list with per-row diff kind. */
+function diffNamedRows<T extends { name: string }>(
+  current: T[],
+  old: T[] | undefined,
+  status: NodeStatus | undefined,
+  eq: (a: T, b: T) => boolean,
+): { item: T; kind: RowKind }[] {
+  if (!status || status === 'unchanged' || status === 'ancestor') {
+    return current.map(item => ({ item, kind: 'unchanged' as RowKind }));
+  }
+  if (status === 'added') return current.map(item => ({ item, kind: 'added' as RowKind }));
+  if (status === 'removed') return current.map(item => ({ item, kind: 'removed' as RowKind }));
+  const oldByName = new Map((old ?? []).map(o => [o.name, o]));
+  const curByName = new Map(current.map(c => [c.name, c]));
+  const rows: { item: T; kind: RowKind }[] = [];
+  for (const item of current) {
+    const o = oldByName.get(item.name);
+    if (!o) rows.push({ item, kind: 'added' });
+    else if (eq(item, o)) rows.push({ item, kind: 'unchanged' });
+    else rows.push({ item, kind: 'changed' });
+  }
+  for (const o of old ?? []) {
+    if (!curByName.has(o.name)) rows.push({ item: o, kind: 'removed' });
+  }
+  return rows;
+}
+
+function diffVariantRows(
+  current: string[],
+  old: string[] | undefined,
+  status: NodeStatus | undefined,
+): { value: string; kind: RowKind }[] {
+  if (!status || status === 'unchanged' || status === 'ancestor') {
+    return current.map(value => ({ value, kind: 'unchanged' as RowKind }));
+  }
+  if (status === 'added') return current.map(value => ({ value, kind: 'added' as RowKind }));
+  if (status === 'removed') return current.map(value => ({ value, kind: 'removed' as RowKind }));
+  const oldSet = new Set(old ?? []);
+  const curSet = new Set(current);
+  const rows: { value: string; kind: RowKind }[] = [];
+  for (const value of current) rows.push({ value, kind: oldSet.has(value) ? 'unchanged' : 'added' });
+  for (const value of old ?? []) if (!curSet.has(value)) rows.push({ value, kind: 'removed' });
+  return rows;
+}
+
+const ROW_BG: Record<RowKind, string | undefined> = {
+  added: 'rgba(63,185,80,0.20)',
+  removed: 'rgba(248,81,73,0.18)',
+  changed: 'rgba(210,153,34,0.20)',
+  unchanged: undefined,
+};
+const ROW_GUTTER: Record<RowKind, string> = { added: '+ ', removed: '− ', changed: '~ ', unchanged: '' };
+
+function rowDecoration(kind: RowKind): React.CSSProperties {
+  const bg = ROW_BG[kind];
+  return {
+    ...(bg ? { background: bg, borderRadius: 3, margin: '0 -4px', padding: '0 4px' } : {}),
+    ...(kind === 'removed' ? { textDecoration: 'line-through', opacity: 0.85 } : {}),
+  };
+}
+
+function FieldRow({ f, kind, nameStyle, typeStyle }: {
+  f: Field; kind: RowKind; nameStyle: React.CSSProperties; typeStyle: React.CSSProperties;
+}) {
+  return (
+    <div style={{ ...styles.field, ...rowDecoration(kind) }}>
+      <span style={nameStyle}>{ROW_GUTTER[kind]}{f.name}{f.optional ? '?' : ''}</span>
+      <span style={typeStyle}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
+    </div>
+  );
+}
+
+function FieldRows({ fields, oldFields, diff, nameStyle, typeStyle }: {
+  fields: Field[];
+  oldFields: Field[] | undefined;
+  diff: NodeDiffInfo | undefined;
+  nameStyle: React.CSSProperties;
+  typeStyle: React.CSSProperties;
+}) {
+  const rows = diffNamedRows(fields, oldFields, diff?.status, fieldEqual);
+  return (
+    <>
+      {rows.map((r, i) => (
+        <FieldRow key={`${r.item.name}-${i}`} f={r.item} kind={r.kind} nameStyle={nameStyle} typeStyle={typeStyle} />
+      ))}
+    </>
+  );
+}
+
+/** Wraps a leaf node with diff status decoration: outline ring, badge, rename label, dim. */
+export function withDiff(Comp: ComponentType<NodeProps>): ComponentType<NodeProps> {
+  return function DiffWrapped(props: NodeProps) {
+    const diff = (props.data as NodeData).diff;
+    if (!diff) return <Comp {...props} />;
+    if (diff.status === 'unchanged') {
+      return <div style={{ opacity: 0.38, transition: 'opacity 0.15s' }}><Comp {...props} /></div>;
+    }
+    const color = STATUS_COLOR[diff.status] ?? '#d29922';
+    return (
+      <div style={{
+        position: 'relative',
+        width: 'max-content',
+        borderRadius: 6,
+        boxShadow: `0 0 0 2px ${color}`,
+        ...(diff.status === 'removed' ? { opacity: 0.8 } : {}),
+      }}>
+        <div style={{
+          position: 'absolute', top: -10, right: -10, zIndex: 5,
+          width: 18, height: 18, borderRadius: 9,
+          background: color, color: '#fff', fontSize: 13, fontWeight: 800,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+        }}>{STATUS_BADGE[diff.status] ?? '~'}</div>
+        {diff.oldName && (
+          <div style={{
+            position: 'absolute', top: -16, left: 2, zIndex: 5,
+            fontSize: 10, fontFamily: 'monospace', color,
+            textDecoration: 'line-through', whiteSpace: 'nowrap',
+          }}>{diff.oldName}</div>
+        )}
+        <Comp {...props} />
+      </div>
+    );
+  };
+}
 
 const HANDLE_STYLE: React.CSSProperties = {
   background: '#666',
@@ -64,7 +214,9 @@ function DiamondSvg({
 // ── Entity (blue rectangle) ───────────────────────────────────────────────────
 
 export function EntityNodeComp({ data }: NodeProps) {
-  const node = (data as NodeData).node as EntityNode;
+  const d = data as NodeData;
+  const node = d.node as EntityNode;
+  const oldNode = d.diff?.oldNode as EntityNode | undefined;
   const hasBody = node.fields.length > 0 || node.constraints.length > 0;
   return (
     <div style={styles.entity}>
@@ -78,12 +230,7 @@ export function EntityNodeComp({ data }: NodeProps) {
             {hasBody && <div style={styles.commentDivider} />}
           </>
         )}
-        {node.fields.map(f => (
-          <div key={f.name} style={styles.field}>
-            <span style={styles.fieldName}>{f.name}{f.optional ? '?' : ''}</span>
-            <span style={styles.fieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
-          </div>
-        ))}
+        <FieldRows fields={node.fields} oldFields={oldNode?.fields} diff={d.diff} nameStyle={styles.fieldName} typeStyle={styles.fieldType} />
         {node.constraints.length > 0 && (
           <div style={styles.constraints}>
             {node.constraints.map((c, i) => (
@@ -101,7 +248,9 @@ export function EntityNodeComp({ data }: NodeProps) {
 // ── Type (neutral gray rectangle) ────────────────────────────────────────────
 
 export function TypeNodeComp({ data }: NodeProps) {
-  const node = (data as NodeData).node as TypeNode;
+  const d = data as NodeData;
+  const node = d.node as TypeNode;
+  const oldNode = d.diff?.oldNode as TypeNode | undefined;
   return (
     <div style={styles.type}>
       <Handle type="target" position={Position.Left} style={HANDLE_STYLE} />
@@ -114,12 +263,7 @@ export function TypeNodeComp({ data }: NodeProps) {
             {node.fields.length > 0 && <div style={styles.commentDivider} />}
           </>
         )}
-        {node.fields.map(f => (
-          <div key={f.name} style={styles.field}>
-            <span style={styles.typeFieldName}>{f.name}{f.optional ? '?' : ''}</span>
-            <span style={styles.typeFieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
-          </div>
-        ))}
+        <FieldRows fields={node.fields} oldFields={oldNode?.fields} diff={d.diff} nameStyle={styles.typeFieldName} typeStyle={styles.typeFieldType} />
       </div>
     </div>
   );
@@ -128,7 +272,10 @@ export function TypeNodeComp({ data }: NodeProps) {
 // ── Enum (teal rectangle) ─────────────────────────────────────────────────────
 
 export function EnumNodeComp({ data }: NodeProps) {
-  const node = (data as NodeData).node as EnumNode;
+  const d = data as NodeData;
+  const node = d.node as EnumNode;
+  const oldNode = d.diff?.oldNode as EnumNode | undefined;
+  const rows = diffVariantRows(node.variants, oldNode?.variants, d.diff?.status);
   return (
     <div style={styles.enum}>
       <Handle type="target" position={Position.Left} style={HANDLE_STYLE} />
@@ -141,8 +288,10 @@ export function EnumNodeComp({ data }: NodeProps) {
             {node.variants.length > 0 && <div style={styles.commentDivider} />}
           </>
         )}
-        {node.variants.map(v => (
-          <div key={v} style={styles.enumVariant}>{v}</div>
+        {rows.map((r, i) => (
+          <div key={`${r.value}-${i}`} style={{ ...styles.enumVariant, ...rowDecoration(r.kind) }}>
+            {ROW_GUTTER[r.kind]}{r.value}
+          </div>
         ))}
       </div>
     </div>
@@ -152,7 +301,9 @@ export function EnumNodeComp({ data }: NodeProps) {
 // ── Event (yellow rectangle) ──────────────────────────────────────────────────
 
 export function EventNodeComp({ data }: NodeProps) {
-  const node = (data as NodeData).node as EventNode;
+  const d = data as NodeData;
+  const node = d.node as EventNode;
+  const oldNode = d.diff?.oldNode as EventNode | undefined;
   if (node.payload.length === 0 && !node.comment) {
     return (
       <div style={styles.event}>
@@ -174,12 +325,7 @@ export function EventNodeComp({ data }: NodeProps) {
             {node.payload.length > 0 && <div style={styles.commentDivider} />}
           </>
         )}
-        {node.payload.map(f => (
-          <div key={f.name} style={styles.field}>
-            <span style={styles.fieldName}>{f.name}{f.optional ? '?' : ''}</span>
-            <span style={styles.fieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
-          </div>
-        ))}
+        <FieldRows fields={node.payload} oldFields={oldNode?.payload} diff={d.diff} nameStyle={styles.fieldName} typeStyle={styles.fieldType} />
       </div>
     </div>
   );
@@ -188,7 +334,9 @@ export function EventNodeComp({ data }: NodeProps) {
 // ── EventHandler (orange rectangle) ──────────────────────────────────────────
 
 export function EventHandlerNodeComp({ data }: NodeProps) {
-  const node = (data as NodeData).node as EventHandlerNode;
+  const d = data as NodeData;
+  const node = d.node as EventHandlerNode;
+  const oldNode = d.diff?.oldNode as EventHandlerNode | undefined;
   if (node.payload.length === 0 && !node.comment) {
     return (
       <div style={styles.eventHandler}>
@@ -210,12 +358,7 @@ export function EventHandlerNodeComp({ data }: NodeProps) {
             {node.payload.length > 0 && <div style={styles.commentDivider} />}
           </>
         )}
-        {node.payload.map(f => (
-          <div key={f.name} style={styles.field}>
-            <span style={styles.fieldName}>{f.name}{f.optional ? '?' : ''}</span>
-            <span style={styles.fieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
-          </div>
-        ))}
+        <FieldRows fields={node.payload} oldFields={oldNode?.payload} diff={d.diff} nameStyle={styles.fieldName} typeStyle={styles.fieldType} />
       </div>
     </div>
   );
@@ -224,7 +367,9 @@ export function EventHandlerNodeComp({ data }: NodeProps) {
 // ── Query (green rectangle) ───────────────────────────────────────────────────
 
 export function QueryNodeComp({ data }: NodeProps) {
-  const node = (data as NodeData).node as QueryNode;
+  const d = data as NodeData;
+  const node = d.node as QueryNode;
+  const oldNode = d.diff?.oldNode as QueryNode | undefined;
   const hasBody = node.inputs.length > 0 || node.response.length > 0;
   return (
     <div style={styles.query}>
@@ -240,23 +385,13 @@ export function QueryNodeComp({ data }: NodeProps) {
       {node.inputs.length > 0 && (
         <div style={styles.querySection}>
           <div style={styles.sectionLabel}>inputs</div>
-          {node.inputs.map(f => (
-            <div key={f.name} style={styles.field}>
-              <span style={styles.fieldName}>{f.name}{f.optional ? '?' : ''}</span>
-              <span style={styles.fieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
-            </div>
-          ))}
+          <FieldRows fields={node.inputs} oldFields={oldNode?.inputs} diff={d.diff} nameStyle={styles.fieldName} typeStyle={styles.fieldType} />
         </div>
       )}
       {node.response.length > 0 && (
         <div style={styles.querySection}>
           <div style={styles.sectionLabel}>response</div>
-          {node.response.map(f => (
-            <div key={f.name} style={styles.field}>
-              <span style={styles.fieldName}>{f.name}{f.optional ? '?' : ''}</span>
-              <span style={styles.fieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
-            </div>
-          ))}
+          <FieldRows fields={node.response} oldFields={oldNode?.response} diff={d.diff} nameStyle={styles.fieldName} typeStyle={styles.fieldType} />
         </div>
       )}
     </div>
@@ -266,7 +401,9 @@ export function QueryNodeComp({ data }: NodeProps) {
 // ── Action (green diamond) ────────────────────────────────────────────────────
 
 export function ActionNodeComp({ data }: NodeProps) {
-  const node = (data as NodeData).node as ActionNode;
+  const d = data as NodeData;
+  const node = d.node as ActionNode;
+  const oldNode = d.diff?.oldNode as ActionNode | undefined;
   const hasBody = node.inputs.length > 0 || node.response.length > 0;
   if (!hasBody) {
     return (
@@ -293,23 +430,13 @@ export function ActionNodeComp({ data }: NodeProps) {
       {node.inputs.length > 0 && (
         <div style={styles.querySection}>
           <div style={styles.actionSectionLabel}>inputs</div>
-          {node.inputs.map(f => (
-            <div key={f.name} style={styles.field}>
-              <span style={styles.fieldName}>{f.name}{f.optional ? '?' : ''}</span>
-              <span style={styles.fieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
-            </div>
-          ))}
+          <FieldRows fields={node.inputs} oldFields={oldNode?.inputs} diff={d.diff} nameStyle={styles.fieldName} typeStyle={styles.fieldType} />
         </div>
       )}
       {node.response.length > 0 && (
         <div style={styles.querySection}>
           <div style={styles.actionSectionLabel}>response</div>
-          {node.response.map(f => (
-            <div key={f.name} style={styles.field}>
-              <span style={styles.fieldName}>{f.name}{f.optional ? '?' : ''}</span>
-              <span style={styles.fieldType}>{f.type.base}{f.type.array ? '[]' : ''}{f.type.nullable ? ' | null' : ''}</span>
-            </div>
-          ))}
+          <FieldRows fields={node.response} oldFields={oldNode?.response} diff={d.diff} nameStyle={styles.fieldName} typeStyle={styles.fieldType} />
         </div>
       )}
     </div>
@@ -334,15 +461,29 @@ export function ActorNodeComp({ data }: NodeProps) {
 // ── Service container (resizable) ────────────────────────────────────────────
 
 export function ServiceNodeComp({ id, data, selected }: NodeProps) {
-  const { name, external, isInterface, implements: implementsService, comment } = data as {
+  const { name, external, isInterface, implements: implementsService, comment, diff } = data as {
     name: string;
     external?: boolean;
     isInterface?: boolean;
     implements?: string;
     comment?: string;
+    diff?: NodeDiffInfo;
   };
   const { onLayoutChange } = useContext(DiagramCallbackContext);
   const { getNodes } = useReactFlow();
+
+  const status = diff?.status;
+  const diffColor = status && status !== 'unchanged' ? STATUS_COLOR[status] : undefined;
+  const isStrong = status === 'added' || status === 'removed' || status === 'renamed' || status === 'modified';
+  const baseStyle = external ? styles.serviceExternal : styles.service;
+  const containerStyle: React.CSSProperties = {
+    ...baseStyle,
+    ...(status === 'unchanged' ? { opacity: 0.4 } : {}),
+    ...(diffColor ? {
+      borderColor: diffColor,
+      boxShadow: isStrong ? `0 0 0 2px ${diffColor}` : `inset 0 0 0 1px ${diffColor}`,
+    } : {}),
+  };
 
   const handleResizeEnd = useCallback(
     (_: unknown, params: { x: number; y: number; width: number; height: number }) => {
@@ -365,18 +506,29 @@ export function ServiceNodeComp({ id, data, selected }: NodeProps) {
   );
 
   return (
-    <div style={external ? styles.serviceExternal : styles.service}>
+    <div style={containerStyle}>
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected && !diff}
         minWidth={300}
         minHeight={200}
         onResizeEnd={handleResizeEnd}
         lineStyle={{ stroke: '#666', strokeWidth: 1 }}
         handleStyle={{ width: 10, height: 10, borderRadius: 2, background: '#444', border: '1px solid #888' }}
       />
-      <div style={styles.serviceLabel}>
+      <div style={{ ...styles.serviceLabel, ...(diffColor ? { color: diffColor } : {}) }}>
         {isInterface && <span style={{ fontStyle: 'italic', marginRight: 6, opacity: 0.8 }}>«interface»</span>}
         {name}
+        {diff?.oldName && (
+          <span style={{ fontSize: 11, fontWeight: 400, marginLeft: 8, textDecoration: 'line-through', opacity: 0.8 }}>
+            {diff.oldName}
+          </span>
+        )}
+        {isStrong && diffColor && (
+          <span style={{
+            marginLeft: 8, padding: '0 6px', borderRadius: 8, fontSize: 11,
+            background: diffColor, color: '#1a1a1a', fontWeight: 800,
+          }}>{STATUS_BADGE[status!] ?? '~'}</span>
+        )}
         {implementsService && (
           <span style={{ fontSize: 11, fontWeight: 400, color: '#888', marginLeft: 8 }}>
             implements {implementsService}

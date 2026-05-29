@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import Editor, { type OnMount, type BeforeMount, type Monaco } from '@monaco-editor/react';
+import Editor, { DiffEditor, type OnMount, type DiffOnMount, type BeforeMount, type Monaco } from '@monaco-editor/react';
 import { registerDiagramLanguage, LANG_ID } from './monacoLanguage';
 import { FileSidebar } from './components/FileSidebar';
 import { DiagramCanvas } from './components/DiagramCanvas';
@@ -10,10 +10,12 @@ import type { StateMachineNode } from '@diagram/parser';
 import type { FocusTarget } from './components/DiagramCanvas';
 import { useFileSync } from './hooks/useFileSync';
 import { useDiagnostics } from './hooks/useDiagnostics';
-import { dslToFlow } from './dslToFlow';
+import { dslToFlow, dslToFlowDiff } from './dslToFlow';
 import type { Layout } from './dslToFlow';
+import { getHead, type HeadSnapshot } from './api';
 import { addEdgeToCode, removeEdgeFromCode, type TargetKind } from './editDsl';
 import type { Node } from '@xyflow/react';
+import type { editor as MonacoEditor } from 'monaco-editor';
 
 function enclosingServices(code: string, cursorLine: number): string[] {
   const lines = code.split('\n');
@@ -67,6 +69,27 @@ function resolveNodeId(word: string, line: number, code: string, nodes: Node[]):
   return candidates[0].id;
 }
 
+const xyTypeToKeyword: Record<string, string> = {
+  entity: 'Entity', enum: 'Enum', event: 'Event', eventhandler: 'EventHandler',
+  query: 'Query', action: 'Action', actor: 'Actor', service: 'Service',
+  statemachine: 'StateMachine', type: 'Type',
+};
+
+// Locate the declaration line (1-based) for a node by name+kind, skipping
+// references that appear inside [...] dispatch/option lists. Returns null if absent.
+function findDeclLine(code: string, nodeName: string, nodeType: string): number | null {
+  const lines = code.split('\n');
+  const keyword = xyTypeToKeyword[nodeType] ?? '[A-Za-z]+';
+  const pattern = new RegExp(`\\b${keyword}\\s+${nodeName}\\b`);
+  let bracketDepth = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (bracketDepth === 0 && pattern.test(line)) return i + 1;
+    bracketDepth += (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0);
+  }
+  return null;
+}
+
 const DEFAULT_EDITOR_WIDTH = 420;
 const MIN_EDITOR_WIDTH = 200;
 const MAX_EDITOR_WIDTH = 1200;
@@ -79,10 +102,14 @@ export default function App() {
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const diffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const nodesRef = useRef<Node[]>([]);
   const codeRef = useRef<string>('');
   const focusFromActionRef = useRef<((id: string) => void) | null>(null);
+
+  const [diffMode, setDiffMode] = useState(false);
+  const [head, setHead] = useState<HeadSnapshot | null>(null);
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     monacoRef.current = monaco;
@@ -108,66 +135,52 @@ export default function App() {
     });
   }, []);
 
-  const xyTypeToKeyword: Record<string, string> = {
-    entity: 'Entity', enum: 'Enum', event: 'Event', eventhandler: 'EventHandler',
-    query: 'Query', action: 'Action', xor: 'XOR', service: 'Service',
-  };
+  const handleDiffEditorMount: DiffOnMount = useCallback((editor) => {
+    diffEditorRef.current = editor;
+  }, []);
 
-  const jumpToLine = useCallback((line: number) => {
+  // Reveal a line in whichever editor is currently active (the inline diff
+  // editor's modified pane when in diff mode, otherwise the normal editor).
+  const activeCodeEditor = useCallback((): MonacoEditor.ICodeEditor | null => {
+    if (diffMode) return diffEditorRef.current?.getModifiedEditor() ?? null;
+    return editorRef.current ?? null;
+  }, [diffMode]);
+
+  const revealLine = useCallback((line: number) => {
     setShowEditor(true);
-    const tryJump = () => {
-      const ed = editorRef.current;
+    const tryReveal = () => {
+      const ed = activeCodeEditor();
       if (!ed) return false;
       const model = ed.getModel();
       if (!model) return false;
-      const maxCol = model.getLineMaxColumn(Math.min(line, model.getLineCount()));
-      ed.revealLineInCenter(line);
-      ed.setSelection({ startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: maxCol });
+      const target = Math.min(line, model.getLineCount());
+      const maxCol = model.getLineMaxColumn(target);
+      ed.revealLineInCenter(target);
+      ed.setSelection({ startLineNumber: target, startColumn: 1, endLineNumber: target, endColumn: maxCol });
       ed.focus();
       return true;
     };
-    if (tryJump()) return;
-    const id = setInterval(() => { if (tryJump()) clearInterval(id); }, 30);
+    if (tryReveal()) return;
+    const id = setInterval(() => { if (tryReveal()) clearInterval(id); }, 30);
     setTimeout(() => clearInterval(id), 1000);
-  }, []);
+  }, [activeCodeEditor]);
+
+  const jumpToLine = useCallback((line: number) => revealLine(line), [revealLine]);
 
   const handleNodeRightClick = useCallback((nodeId: string, nodeType: string) => {
-    const parts = nodeId.split('::');
-    const nodeName = parts[parts.length - 1];
+    const nodeName = nodeId.split('::').pop();
     if (!nodeName) return;
     setShowEditor(true);
-
-    const navigate = () => {
-      const ed = editorRef.current;
-      if (!ed) return;
-      const model = ed.getModel();
-      if (!model) return;
-      const lines = model.getLinesContent();
-      const keyword = xyTypeToKeyword[nodeType] ?? '[A-Za-z]+';
-      const pattern = new RegExp(`\\b${keyword}\\s+${nodeName}\\b`);
-      // Skip lines inside [...] blocks (dispatch/options lists) — they contain references, not declarations
-      let bracketDepth = 0;
-      let lineIndex = -1;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (bracketDepth === 0 && pattern.test(line)) { lineIndex = i; break; }
-        bracketDepth += (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0);
-      }
-      if (lineIndex === -1) return;
-      const lineNumber = lineIndex + 1;
-      ed.revealLineInCenter(lineNumber);
-      ed.setSelection({ startLineNumber: lineNumber, startColumn: 1, endLineNumber: lineNumber, endColumn: lines[lineIndex].length + 1 });
-      ed.focus();
+    const tryNavigate = () => {
+      if (!activeCodeEditor()) return false;
+      const line = findDeclLine(codeRef.current, nodeName, nodeType);
+      if (line != null) revealLine(line);
+      return true;
     };
-
-    // Editor may need a moment to mount if it was hidden
-    if (editorRef.current) {
-      navigate();
-    } else {
-      const id = setInterval(() => { if (editorRef.current) { clearInterval(id); navigate(); } }, 30);
-      setTimeout(() => clearInterval(id), 1000);
-    }
-  }, []);
+    if (tryNavigate()) return;
+    const id = setInterval(() => { if (tryNavigate()) clearInterval(id); }, 30);
+    setTimeout(() => clearInterval(id), 1000);
+  }, [activeCodeEditor, revealLine]);
 
   const formatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFormattingRef = useRef(false);
@@ -193,6 +206,24 @@ export default function App() {
     [code, layout, activeView],
   );
 
+  // Fetch the HEAD snapshot when diff mode is on (and re-fetch per file).
+  useEffect(() => {
+    if (!diffMode || !currentFile) { setHead(null); return; }
+    let cancelled = false;
+    setHead(null);
+    getHead(currentFile).then(h => { if (!cancelled) setHead(h); });
+    return () => { cancelled = true; };
+  }, [diffMode, currentFile]);
+
+  const diffFlow = useMemo(
+    () => (diffMode && head ? dslToFlowDiff(code, layout, head.source, head.layout) : null),
+    [diffMode, head, code, layout],
+  );
+
+  const handleNodeJump = useCallback((nodeId: string, nodeType: string) => {
+    handleNodeRightClick(nodeId, nodeType);
+  }, [handleNodeRightClick]);
+
   // If the active view is renamed or deleted in the DSL, fall back to the full diagram.
   useEffect(() => {
     if (viewMissing) setActiveView(null);
@@ -213,6 +244,10 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
         setPaletteOpen(v => !v);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        setDiffMode(v => !v);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -309,22 +344,43 @@ export default function App() {
 
             {showEditor && (
               <div style={{ ...styles.editor, width: editorWidth }}>
-                <Editor
-                  height="100%"
-                  defaultLanguage={LANG_ID}
-                  theme="diagram-dark"
-                  value={code}
-                  onChange={handleChange}
-                  beforeMount={handleBeforeMount}
-                  onMount={handleEditorMount}
-                  options={{
-                    fontSize: 13,
-                    minimap: { enabled: false },
-                    wordWrap: 'on',
-                    scrollBeyondLastLine: false,
-                    lineNumbers: 'on',
-                  }}
-                />
+                {diffMode ? (
+                  <DiffEditor
+                    height="100%"
+                    language={LANG_ID}
+                    theme="diagram-dark"
+                    original={head?.source ?? ''}
+                    modified={code}
+                    beforeMount={handleBeforeMount}
+                    onMount={handleDiffEditorMount}
+                    options={{
+                      fontSize: 13,
+                      readOnly: true,
+                      renderSideBySide: false,
+                      minimap: { enabled: false },
+                      wordWrap: 'on',
+                      scrollBeyondLastLine: false,
+                      lineNumbers: 'on',
+                    }}
+                  />
+                ) : (
+                  <Editor
+                    height="100%"
+                    defaultLanguage={LANG_ID}
+                    theme="diagram-dark"
+                    value={code}
+                    onChange={handleChange}
+                    beforeMount={handleBeforeMount}
+                    onMount={handleEditorMount}
+                    options={{
+                      fontSize: 13,
+                      minimap: { enabled: false },
+                      wordWrap: 'on',
+                      scrollBeyondLastLine: false,
+                      lineNumbers: 'on',
+                    }}
+                  />
+                )}
               </div>
             )}
 
@@ -340,7 +396,7 @@ export default function App() {
               >
                 {showEditor ? '◀ Hide' : '{ } Code'}
               </button>
-              {views.length > 0 && (
+              {views.length > 0 && !diffMode && (
                 <select
                   style={styles.viewSelect}
                   value={activeView ?? ''}
@@ -353,19 +409,48 @@ export default function App() {
                   ))}
                 </select>
               )}
+
+              <div style={styles.diffToggle}>
+                <button
+                  style={{ ...styles.diffToggleBtn, ...(diffMode ? {} : styles.diffToggleActive) }}
+                  onClick={() => setDiffMode(false)}
+                >
+                  Edit
+                </button>
+                <button
+                  style={{ ...styles.diffToggleBtn, ...(diffMode ? styles.diffToggleActive : {}) }}
+                  onClick={() => setDiffMode(true)}
+                  title="Show changes vs git HEAD (⌘⇧D)"
+                >
+                  Diff
+                </button>
+              </div>
+
+              {diffMode && head?.source == null && (
+                <div style={styles.diffBanner}>New file — not in HEAD; everything is new</div>
+              )}
+              {diffMode && head && diffFlow && diffFlow.changeCount === 0 && head.source != null && (
+                <div style={styles.diffEmpty}>No changes since last commit</div>
+              )}
+              {diffMode && !head && (
+                <div style={styles.diffEmpty}>Loading diff…</div>
+              )}
+
               <DiagramCanvas
-                key={currentFile}
-                nodes={nodes}
-                edges={edges}
+                key={diffMode ? `${currentFile}::diff` : currentFile}
+                nodes={diffFlow ? diffFlow.nodes : nodes}
+                edges={diffFlow ? diffFlow.edges : edges}
                 filename={currentFile ?? undefined}
-                currentLayout={activeView ? {} : layout}
-                onLayoutChange={activeView ? () => {} : handleLayoutChange}
+                currentLayout={diffMode || activeView ? {} : layout}
+                onLayoutChange={diffMode || activeView ? () => {} : handleLayoutChange}
                 onNodeRightClick={handleNodeRightClick}
                 onAddEdge={handleAddEdge}
                 onDeleteEdge={handleDeleteEdge}
                 onOpenStateMachine={setOpenStateMachine}
                 focusTarget={focusTarget}
-                autoLayoutKey={activeView}
+                autoLayoutKey={diffMode ? null : activeView}
+                diffMode={diffMode}
+                onNodeJump={handleNodeJump}
               />
             </div>
           </div>
@@ -459,6 +544,59 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     fontFamily: 'monospace',
     letterSpacing: 0.5,
+  },
+  diffToggle: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 10,
+    display: 'flex',
+    background: '#1e1e2e',
+    border: '1px solid #444',
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  diffToggleBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: '#888',
+    padding: '5px 12px',
+    fontSize: 12,
+    cursor: 'pointer',
+    fontFamily: 'monospace',
+    letterSpacing: 0.5,
+  },
+  diffToggleActive: {
+    background: '#2d4a63',
+    color: '#fff',
+  },
+  diffBanner: {
+    position: 'absolute',
+    top: 12,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 10,
+    background: '#2a3a2a',
+    border: '1px solid #3fb950',
+    color: '#9fdba9',
+    padding: '5px 14px',
+    borderRadius: 6,
+    fontSize: 12,
+    fontFamily: 'monospace',
+  },
+  diffEmpty: {
+    position: 'absolute',
+    top: 12,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 10,
+    background: '#222',
+    border: '1px solid #444',
+    color: '#aaa',
+    padding: '5px 14px',
+    borderRadius: 6,
+    fontSize: 12,
+    fontFamily: 'monospace',
   },
   loading: {
     position: 'absolute',

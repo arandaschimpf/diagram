@@ -5,10 +5,14 @@ import staticPlugin from '@fastify/static';
 import { readdir, readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { createServer } from 'net';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { join, resolve, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
 import chokidar from 'chokidar';
 import { parse as parseDiagram, diffRenames, migrateLayout, parseLayout, serializeLayout, type AST, type Layout } from '@diagram/parser';
+
+const execFileAsync = promisify(execFile);
 
 function findPort(preferred: number): Promise<number> {
   return new Promise((res) => {
@@ -125,6 +129,52 @@ app.put<{ Params: { '*': string }; Body: unknown }>('/api/layouts/*', async (req
   await mkdir(dirname(p), { recursive: true });
   await writeFile(p, serializeLayout(req.body as Layout), 'utf8');
   return reply.code(200).send({ ok: true });
+});
+
+// ── Git (HEAD) read access for diff mode ───────────────────────────────────────
+
+// Path from the git repo root to FILES_DIR (posix, trailing slash), resolved
+// once. `null` when FILES_DIR is not inside a git repo. Computed relative to
+// FILES_DIR so it is immune to /var → /private/var symlink mismatches.
+let gitPrefixPromise: Promise<string | null> | undefined;
+function gitPrefix(): Promise<string | null> {
+  if (!gitPrefixPromise) {
+    gitPrefixPromise = execFileAsync('git', ['rev-parse', '--show-prefix'], { cwd: FILES_DIR })
+      .then(({ stdout }) => stdout.replace(/\n$/, '')) // '' at repo root, else 'sub/dir/'
+      .catch(() => null);
+  }
+  return gitPrefixPromise;
+}
+
+// Return the contents of `absPath` at git HEAD, or null if the file is not
+// tracked / not committed / git is unavailable.
+async function gitShowHead(absPath: string): Promise<string | null> {
+  const prefix = await gitPrefix();
+  if (prefix == null) return null;
+  const relToDir = relative(FILES_DIR, absPath).split(sep).join('/');
+  if (relToDir.startsWith('..')) return null;
+  try {
+    const { stdout } = await execFileAsync('git', ['show', `HEAD:${prefix}${relToDir}`], {
+      cwd: FILES_DIR,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return stdout;
+  } catch {
+    return null; // unknown path at HEAD (new file) or no commits yet
+  }
+}
+
+// Diff source: the working copy vs git HEAD. `source` is null when the .diagram
+// file is untracked/new (→ the whole file reads as added on the client).
+app.get<{ Params: { '*': string } }>('/api/head/*', async (req, reply) => {
+  const name = req.params['*'];
+  const source = await gitShowHead(diagramPath(name));
+  const layoutRaw = await gitShowHead(layoutPath(name));
+  let layout: Layout = {};
+  if (layoutRaw != null) {
+    try { layout = parseLayout(layoutRaw); } catch { layout = {}; }
+  }
+  return reply.send({ source, layout });
 });
 
 // ── WebSocket file watcher ────────────────────────────────────────────────────

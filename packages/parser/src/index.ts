@@ -7,6 +7,8 @@ export { resolveView } from './views.js';
 export type { ResolvedView } from './views.js';
 export { diffRenames, migrateLayout } from './diffRenames.js';
 export type { Rename, Layout } from './diffRenames.js';
+export { diffAst } from './diff.js';
+export type { DiagramDiff, NodeDiffInfo, NodeStatus, RemovedNodeInfo } from './diff.js';
 export { parseLayout, serializeLayout } from './layoutFormat.js';
 export type {
   AST, ServiceNode, DiagramNode, EntityNode, EnumNode, EventNode, EventHandlerNode,

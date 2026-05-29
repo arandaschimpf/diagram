@@ -35,3 +35,15 @@ export async function saveLayout(name: string, layout: Record<string, { x: numbe
     body: JSON.stringify(layout),
   });
 }
+
+export type HeadSnapshot = {
+  /** File contents at git HEAD, or null when the file is untracked/new. */
+  source: string | null;
+  layout: Record<string, { x: number; y: number; width?: number; height?: number }>;
+};
+
+export async function getHead(name: string): Promise<HeadSnapshot> {
+  const r = await fetch(`${BASE}/head/${encodePath(name)}`);
+  if (!r.ok) return { source: null, layout: {} };
+  return r.json();
+}

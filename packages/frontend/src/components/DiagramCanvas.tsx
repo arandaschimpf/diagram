@@ -12,23 +12,26 @@ import { toPng } from 'html-to-image';
 import {
   EntityNodeComp, EnumNodeComp, EventNodeComp, EventHandlerNodeComp,
   QueryNodeComp, ActionNodeComp, ActorNodeComp, ServiceNodeComp,
-  StateMachineNodeComp, TypeNodeComp,
+  StateMachineNodeComp, TypeNodeComp, withDiff,
 } from './nodes';
 import type { Layout } from '../dslToFlow';
 import { DiagramCallbackContext } from '../diagramContext';
 import { computeAutoLayout } from '../autoLayout';
 
+// Leaf node types are wrapped with diff decoration. The wrapper is a no-op when
+// the node carries no `data.diff`, so the same map serves normal and diff mode.
+// The service container reads its own diff status, so it is left unwrapped.
 const nodeTypes = {
-  entity: EntityNodeComp,
-  enum: EnumNodeComp,
-  event: EventNodeComp,
-  eventhandler: EventHandlerNodeComp,
-  query: QueryNodeComp,
-  action: ActionNodeComp,
-  actor: ActorNodeComp,
+  entity: withDiff(EntityNodeComp),
+  enum: withDiff(EnumNodeComp),
+  event: withDiff(EventNodeComp),
+  eventhandler: withDiff(EventHandlerNodeComp),
+  query: withDiff(QueryNodeComp),
+  action: withDiff(ActionNodeComp),
+  actor: withDiff(ActorNodeComp),
   service: ServiceNodeComp,
-  statemachine: StateMachineNodeComp,
-  type: TypeNodeComp,
+  statemachine: withDiff(StateMachineNodeComp),
+  type: withDiff(TypeNodeComp),
 };
 
 const EXPORT_ZOOM = 1.5;
@@ -54,6 +57,9 @@ interface Props {
    * "fresh auto-layout for these nodes".
    */
   autoLayoutKey?: string | null;
+  /** Read-only diff review: disables editing/persistence; left-click jumps to the editor hunk. */
+  diffMode?: boolean;
+  onNodeJump?: (nodeId: string, nodeType: string) => void;
 }
 
 const SOURCE_KINDS = new Set(['action', 'eventhandler', 'actor']);
@@ -273,7 +279,7 @@ function MiniMapWithNavigation() {
   );
 }
 
-export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, currentLayout, onLayoutChange, onNodeRightClick, onAddEdge, onDeleteEdge, onOpenStateMachine, focusTarget, autoLayoutKey }: Props) {
+export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, currentLayout, onLayoutChange, onNodeRightClick, onAddEdge, onDeleteEdge, onOpenStateMachine, focusTarget, autoLayoutKey, diffMode, onNodeJump }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState(propNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(propEdges);
   const [animating, setAnimating] = useState(false);
@@ -314,6 +320,10 @@ export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, cu
     onNodeRightClick?.(node.id, node.type ?? '');
   }, [onNodeRightClick]);
 
+  const handleNodeClick: NodeMouseHandler = useCallback((_e, node) => {
+    if (diffMode) onNodeJump?.(node.id, node.type ?? '');
+  }, [diffMode, onNodeJump]);
+
   const handleNodeDragStop = useCallback(() => {
     setNodes(current => {
       const layout: Layout = {};
@@ -340,11 +350,16 @@ export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, cu
           edges={edges}
           onNodesChange={onNodesChange as OnNodesChange}
           onEdgesChange={onEdgesChange as OnEdgesChange}
-          onConnect={onConnect}
+          onConnect={diffMode ? undefined : onConnect}
           isValidConnection={isValidConnection}
-          onEdgesDelete={handleEdgesDelete}
-          onNodeDragStop={handleNodeDragStop}
+          onEdgesDelete={diffMode ? undefined : handleEdgesDelete}
+          onNodeDragStop={diffMode ? undefined : handleNodeDragStop}
           onNodeContextMenu={handleNodeContextMenu}
+          onNodeClick={handleNodeClick}
+          nodesDraggable={!diffMode}
+          nodesConnectable={!diffMode}
+          edgesReconnectable={!diffMode}
+          deleteKeyCode={diffMode ? null : undefined}
           nodeTypes={nodeTypes}
           fitView
           panActivationKeyCode={null}
@@ -354,7 +369,9 @@ export function DiagramCanvas({ nodes: propNodes, edges: propEdges, filename, cu
           <ViewAutoLayout autoLayoutKey={autoLayoutKey} />
           <Background color="#333" gap={16} />
           <Controls>
-            <AutoLayoutButton currentLayout={currentLayout} setAnimating={setAnimating} onLayoutChange={onLayoutChange} />
+            {!diffMode && (
+              <AutoLayoutButton currentLayout={currentLayout} setAnimating={setAnimating} onLayoutChange={onLayoutChange} />
+            )}
             <SavePngButton filename={filename ?? 'diagram'} />
           </Controls>
           <MiniMapWithNavigation />
